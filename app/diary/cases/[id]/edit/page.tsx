@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   DISTRICT_COURTS,
@@ -13,7 +13,7 @@ import {
   CLIENT_SIDES_DISTRICT,
   CLIENT_SIDES_HC,
 } from '@/lib/constants/courts'
-import { ArrowLeft, Building2, Scale, ChevronDown, Search } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Search, Building2, Scale, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -22,8 +22,7 @@ import Link from 'next/link'
 type CourtLevel = 'district' | 'high_court'
 
 interface FormData {
-  // common
-  court_level: CourtLevel | null
+  court_level: CourtLevel
   case_number: string
   case_year: number
   case_type: string
@@ -39,33 +38,13 @@ interface FormData {
   notes: string
   // district-specific
   court_code: string
-  court_name_custom: string   // free text when "OTHER" selected
+  court_name_custom: string
   // hc-specific
   hc_bench: string
 }
 
 interface FieldErrors {
   [key: string]: string
-}
-
-const INITIAL: FormData = {
-  court_level: null,
-  case_number: '',
-  case_year: new Date().getFullYear(),
-  case_type: '',
-  party_plaintiff: '',
-  party_defendant: '',
-  client_name: '',
-  client_side: '',
-  our_role: '',
-  opposite_advocate: '',
-  filed_date: '',
-  case_stage: '',
-  ecourts_cnr: '',
-  notes: '',
-  court_code: '',
-  court_name_custom: '',
-  hc_bench: '',
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +58,7 @@ function SearchableSelect({
   placeholder = 'Select...',
   error,
   required,
+  disabled,
 }: {
   label: string
   options: { value: string; label: string }[]
@@ -87,6 +67,7 @@ function SearchableSelect({
   placeholder?: string
   error?: string
   required?: boolean
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -115,10 +96,11 @@ function SearchableSelect({
       </label>
       <button
         type="button"
-        onClick={() => { setOpen(!open); setSearch('') }}
+        onClick={() => { if (!disabled) { setOpen(!open); setSearch('') } }}
+        disabled={disabled}
         className={`w-full flex items-center justify-between px-3 py-2.5 border rounded-lg text-sm text-left bg-white transition-colors ${
           error ? 'border-red-400 ring-1 ring-red-300' : 'border-gray-300 hover:border-gray-400'
-        }`}
+        } ${disabled ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
       >
         <span className={value ? 'text-gray-900' : 'text-gray-400'}>
           {selectedLabel || placeholder}
@@ -127,7 +109,7 @@ function SearchableSelect({
       </button>
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
 
-      {open && (
+      {open && !disabled && (
         <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50">
@@ -177,6 +159,7 @@ function SimpleSelect({
   placeholder = 'Select...',
   error,
   required,
+  disabled,
 }: {
   label: string
   options: { value: string; label: string }[]
@@ -185,6 +168,7 @@ function SimpleSelect({
   placeholder?: string
   error?: string
   required?: boolean
+  disabled?: boolean
 }) {
   return (
     <div>
@@ -194,9 +178,10 @@ function SimpleSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         className={`w-full px-3 py-2.5 border rounded-lg text-sm bg-white appearance-none transition-colors ${
           error ? 'border-red-400 ring-1 ring-red-300' : 'border-gray-300 hover:border-gray-400'
-        } ${!value ? 'text-gray-400' : 'text-gray-900'}`}
+        } ${!value ? 'text-gray-400' : 'text-gray-900'} ${disabled ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
       >
         <option value="">{placeholder}</option>
         {options.map(o => (
@@ -281,7 +266,7 @@ function TextArea({
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for formatting labels
+// Helpers
 // ---------------------------------------------------------------------------
 function capitalize(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -290,16 +275,151 @@ function capitalize(s: string): string {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-export default function NewCasePage() {
+export default function EditCasePage() {
   const router = useRouter()
-  const [form, setForm] = useState<FormData>({ ...INITIAL })
+  const params = useParams()
+  const caseId = params.id as string
+
+  const [form, setForm] = useState<FormData | null>(null)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
 
+  // ---------------------------------------------------------------------------
+  // Fetch case data on mount
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient()
+
+      // Get current user
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+
+      // Get advocate_id
+      const { data: advocate, error: advError } = await supabase
+        .from('advocates')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (advError || !advocate) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+
+      // Fetch case with advocate_id security check
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('*')
+        .eq('id', caseId)
+        .eq('advocate_id', advocate.id)
+        .single()
+
+      if (caseError || !caseData) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+
+      // Determine court_code and court_name_custom from the case data
+      const courtLevel = caseData.court_level as CourtLevel
+      let courtCode = ''
+      let courtNameCustom = ''
+      let hcBench = ''
+
+      if (courtLevel === 'district') {
+        if (caseData.court_code === 'OTHER') {
+          courtCode = 'OTHER'
+          courtNameCustom = caseData.court_name || ''
+        } else {
+          courtCode = caseData.court_code || ''
+        }
+      } else {
+        hcBench = caseData.court_code || caseData.hc_bench || ''
+      }
+
+      setForm({
+        court_level: courtLevel,
+        case_number: caseData.case_number || '',
+        case_year: caseData.case_year || new Date().getFullYear(),
+        case_type: caseData.case_type || '',
+        party_plaintiff: caseData.party_plaintiff || '',
+        party_defendant: caseData.party_defendant || '',
+        client_name: caseData.client_name || '',
+        client_side: caseData.client_side || '',
+        our_role: caseData.our_role || '',
+        opposite_advocate: caseData.opposite_advocate || '',
+        filed_date: caseData.filed_date || '',
+        case_stage: caseData.case_stage || '',
+        ecourts_cnr: caseData.ecourts_cnr || '',
+        notes: caseData.notes || '',
+        court_code: courtCode,
+        court_name_custom: courtNameCustom,
+        hc_bench: hcBench,
+      })
+
+      setLoading(false)
+    }
+
+    load()
+  }, [caseId])
+
+  // ---------------------------------------------------------------------------
+  // Loading state
+  // ---------------------------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto flex items-center justify-center py-24">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#1e3a5f' }} />
+          <p className="text-sm text-gray-500">Loading case...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // 404 state
+  // ---------------------------------------------------------------------------
+  if (notFound || !form) {
+    return (
+      <div className="max-w-3xl mx-auto flex items-center justify-center py-24">
+        <div className="text-center">
+          <h2
+            className="text-2xl font-bold text-gray-800 mb-2"
+            style={{ fontFamily: 'Georgia, serif' }}
+          >
+            Case Not Found
+          </h2>
+          <p className="text-gray-500 mb-6">
+            This case does not exist or you do not have access to it.
+          </p>
+          <Link
+            href="/diary/cases"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-white px-5 py-2.5 rounded-lg transition-colors"
+            style={{ background: '#1e3a5f' }}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Cases
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Form helpers
+  // ---------------------------------------------------------------------------
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) => {
-    setForm(prev => ({ ...prev, [key]: value }))
-    // clear error for this field when user types
+    setForm(prev => prev ? { ...prev, [key]: value } : prev)
     if (errors[key]) {
       setErrors(prev => {
         const copy = { ...prev }
@@ -310,99 +430,32 @@ export default function NewCasePage() {
   }
 
   // ---------------------------------------------------------------------------
-  // Step A: pick court level
-  // ---------------------------------------------------------------------------
-  if (!form.court_level) {
-    return (
-      <div className="max-w-2xl mx-auto">
-        <Link
-          href="/diary/cases"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Cases
-        </Link>
-
-        <h2
-          className="text-2xl font-bold text-gray-800 mb-2"
-          style={{ fontFamily: 'Georgia, serif' }}
-        >
-          Add New Case
-        </h2>
-        <p className="text-gray-500 mb-8">Select the court level to get started.</p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button
-            onClick={() => set('court_level', 'district')}
-            className="group flex flex-col items-center gap-4 p-8 bg-white rounded-xl border-2 border-gray-200 hover:border-[#1e3a5f] hover:shadow-md transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-              <Building2 className="w-8 h-8" style={{ color: '#1e3a5f' }} />
-            </div>
-            <div className="text-center">
-              <h3
-                className="text-lg font-bold text-gray-800"
-                style={{ fontFamily: 'Georgia, serif' }}
-              >
-                District Court
-              </h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Sessions, MACT, Consumer, Family, Commercial
-              </p>
-            </div>
-          </button>
-
-          <button
-            onClick={() => set('court_level', 'high_court')}
-            className="group flex flex-col items-center gap-4 p-8 bg-white rounded-xl border-2 border-gray-200 hover:border-[#1e3a5f] hover:shadow-md transition-all"
-          >
-            <div className="w-16 h-16 rounded-full bg-purple-50 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
-              <Scale className="w-8 h-8" style={{ color: '#1e3a5f' }} />
-            </div>
-            <div className="text-center">
-              <h3
-                className="text-lg font-bold text-gray-800"
-                style={{ fontFamily: 'Georgia, serif' }}
-              >
-                High Court
-              </h3>
-              <p className="text-sm text-gray-500 mt-1">
-                Rajasthan HC — Jodhpur & Jaipur Bench
-              </p>
-            </div>
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
   function validate(): boolean {
     const e: FieldErrors = {}
 
-    if (!form.case_number.trim()) e.case_number = 'Case number is required'
-    if (!form.party_plaintiff.trim()) {
-      e.party_plaintiff = form.court_level === 'high_court'
+    if (!form!.case_number.trim()) e.case_number = 'Case number is required'
+    if (!form!.party_plaintiff.trim()) {
+      e.party_plaintiff = form!.court_level === 'high_court'
         ? 'Petitioner is required'
         : 'Plaintiff is required'
     }
-    if (!form.party_defendant.trim()) {
-      e.party_defendant = form.court_level === 'high_court'
+    if (!form!.party_defendant.trim()) {
+      e.party_defendant = form!.court_level === 'high_court'
         ? 'Respondent is required'
         : 'Defendant is required'
     }
 
-    if (form.court_level === 'district') {
-      if (!form.court_code) e.court_code = 'Court is required'
-      if (form.court_code === 'OTHER' && !form.court_name_custom.trim()) {
+    if (form!.court_level === 'district') {
+      if (!form!.court_code) e.court_code = 'Court is required'
+      if (form!.court_code === 'OTHER' && !form!.court_name_custom.trim()) {
         e.court_name_custom = 'Please specify the court name'
       }
     }
 
-    if (form.court_level === 'high_court') {
-      if (!form.hc_bench) e.hc_bench = 'Bench selection is required'
+    if (form!.court_level === 'high_court') {
+      if (!form!.hc_bench) e.hc_bench = 'Bench selection is required'
     }
 
     setErrors(e)
@@ -424,7 +477,7 @@ export default function NewCasePage() {
       // Get current user
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError || !user) {
-        setSaveError('You must be logged in to add a case.')
+        setSaveError('You must be logged in to edit a case.')
         setSaving(false)
         return
       }
@@ -437,63 +490,61 @@ export default function NewCasePage() {
         .single()
 
       if (advError || !advocate) {
-        setSaveError('Advocate profile not found. Please complete your profile first.')
+        setSaveError('Advocate profile not found.')
         setSaving(false)
         return
       }
 
-      // Build the row
+      // Build the update row
       let courtName: string
       let courtCode: string | null = null
 
-      if (form.court_level === 'district') {
-        if (form.court_code === 'OTHER') {
-          courtName = form.court_name_custom.trim()
+      if (form!.court_level === 'district') {
+        if (form!.court_code === 'OTHER') {
+          courtName = form!.court_name_custom.trim()
           courtCode = 'OTHER'
         } else {
-          const court = DISTRICT_COURTS.find(c => c.code === form.court_code)
-          courtName = court?.name || form.court_code
-          courtCode = form.court_code
+          const court = DISTRICT_COURTS.find(c => c.code === form!.court_code)
+          courtName = court?.name || form!.court_code
+          courtCode = form!.court_code
         }
       } else {
-        const bench = HC_BENCHES.find(b => b.code === form.hc_bench)
-        courtName = bench?.name || form.hc_bench
-        courtCode = form.hc_bench
+        const bench = HC_BENCHES.find(b => b.code === form!.hc_bench)
+        courtName = bench?.name || form!.hc_bench
+        courtCode = form!.hc_bench
       }
 
       const row = {
-        advocate_id: advocate.id,
-        court_level: form.court_level,
         court_code: courtCode,
         court_name: courtName,
-        case_number: form.case_number.trim(),
-        case_year: form.case_year,
-        case_type: form.case_type || null,
-        party_plaintiff: form.party_plaintiff.trim(),
-        party_defendant: form.party_defendant.trim(),
-        client_name: form.client_name.trim() || null,
-        client_side: form.client_side || null,
-        our_role: form.our_role.trim() || null,
-        opposite_advocate: form.opposite_advocate.trim() || null,
-        filed_date: form.filed_date || null,
-        case_stage: form.case_stage || null,
-        ecourts_cnr: form.ecourts_cnr.trim() || null,
-        notes: form.notes.trim() || null,
+        case_number: form!.case_number.trim(),
+        case_year: form!.case_year,
+        case_type: form!.case_type || null,
+        party_plaintiff: form!.party_plaintiff.trim(),
+        party_defendant: form!.party_defendant.trim(),
+        client_name: form!.client_name.trim() || null,
+        client_side: form!.client_side || null,
+        our_role: form!.our_role.trim() || null,
+        opposite_advocate: form!.opposite_advocate.trim() || null,
+        filed_date: form!.filed_date || null,
+        case_stage: form!.case_stage || null,
+        ecourts_cnr: form!.ecourts_cnr.trim() || null,
+        notes: form!.notes.trim() || null,
       }
 
-      const { data: inserted, error: insertError } = await supabase
+      const { error: updateError } = await supabase
         .from('cases')
-        .insert(row)
-        .select('id')
-        .single()
+        .update(row)
+        .eq('id', caseId)
+        .eq('advocate_id', advocate.id)
 
-      if (insertError) {
-        setSaveError(insertError.message)
+      if (updateError) {
+        setSaveError(updateError.message)
         setSaving(false)
         return
       }
 
-      router.push(`/diary/cases/${inserted.id}`)
+      router.push(`/diary/cases/${caseId}`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Something went wrong'
       setSaveError(message)
@@ -534,33 +585,44 @@ export default function NewCasePage() {
   const selectedCourt = DISTRICT_COURTS.find(c => c.code === form.court_code)
 
   // ---------------------------------------------------------------------------
-  // Step B: the form
+  // Render
   // ---------------------------------------------------------------------------
   return (
     <div className="max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={() => {
-            setForm({ ...INITIAL })
-            setErrors({})
-            setSaveError(null)
-          }}
+        <Link
+          href={`/diary/cases/${caseId}`}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back
-        </button>
+        </Link>
         <div>
           <h2
             className="text-2xl font-bold text-gray-800"
             style={{ fontFamily: 'Georgia, serif' }}
           >
-            {isDistrict ? 'District Court' : 'High Court'} — New Case
+            Edit Case
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Fill in the case details below. Fields marked with * are required.
+            Update the case details below. Fields marked with * are required.
           </p>
+        </div>
+      </div>
+
+      {/* Court level badge (disabled, display only) */}
+      <div className="mb-6">
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+          {isDistrict ? (
+            <Building2 className="w-4 h-4" style={{ color: '#1e3a5f' }} />
+          ) : (
+            <Scale className="w-4 h-4" style={{ color: '#1e3a5f' }} />
+          )}
+          <span className="text-sm font-medium text-gray-700">
+            {isDistrict ? 'District Court' : 'High Court'}
+          </span>
+          <span className="text-xs text-gray-400 ml-1">(cannot be changed)</span>
         </div>
       </div>
 
@@ -772,17 +834,12 @@ export default function NewCasePage() {
 
         {/* ---- Actions ---- */}
         <div className="p-6 flex items-center justify-between gap-4">
-          <button
-            type="button"
-            onClick={() => {
-              setForm({ ...INITIAL })
-              setErrors({})
-              setSaveError(null)
-            }}
+          <Link
+            href={`/diary/cases/${caseId}`}
             className="px-5 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
           >
-            Reset
-          </button>
+            Cancel
+          </Link>
 
           <button
             type="button"
@@ -793,7 +850,7 @@ export default function NewCasePage() {
             onMouseEnter={(e) => { if (!saving) e.currentTarget.style.background = '#15304f' }}
             onMouseLeave={(e) => { if (!saving) e.currentTarget.style.background = '#1e3a5f' }}
           >
-            {saving ? 'Saving...' : 'Save Case'}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>

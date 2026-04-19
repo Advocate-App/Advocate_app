@@ -1,26 +1,175 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafaf7;
+  --foreground: #1a1a1a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-inter);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', Arial, Helvetica, sans-serif;
+}
+
+/* Print stylesheet for Today's Diary */
+@media print {
+  /* Hide navigation, sidebar, header, buttons */
+  aside,
+  header,
+  nav,
+  button,
+  .no-print,
+  [data-no-print] {
+    display: none !important;
+  }
+
+  /* Reset layout */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .flex.h-screen {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .flex-1.flex.flex-col.overflow-hidden {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  .flex-1.overflow-y-auto {
+    overflow: visible !important;
+    padding: 10px !important;
+  }
+
+  /* Print header */
+  .print-header {
+    display: block !important;
+    text-align: center;
+    font-family: Georgia, serif;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #333;
+  }
+
+  .print-header h1 {
+    font-size: 16pt;
+    margin: 0;
+  }
+
+  .print-header p {
+    font-size: 10pt;
+    color: #555;
+    margin: 3px 0 0;
+  }
+
+  /* Table styles for print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 9pt !important;
+  }
+
+  th {
+    background: #f0f0f0 !important;
+    border: 1px solid #ccc !important;
+    padding: 4px 6px !important;
+    font-weight: bold !important;
+    text-align: left !important;
+    font-size: 8pt !important;
+    text-transform: uppercase !important;
+  }
+
+  td {
+    border: 1px solid #ddd !important;
+    padding: 4px 6px !important;
+    vertical-align: top !important;
+  }
+
+  tr:nth-child(even) td {
+    background: #fafafa !important;
+  }
+
+  /* Status indicators in print */
+  .hearing-attended td:first-child {
+    border-left: 4px solid #22c55e !important;
+  }
+
+  .hearing-pending td:first-child {
+    border-left: 4px solid #f59e0b !important;
+  }
+
+  .hearing-missed td:first-child {
+    border-left: 4px solid #ef4444 !important;
+  }
+
+  /* Page footer */
+  @page {
+    size: A4;
+    margin: 15mm 10mm;
+  }
+
+  .print-footer {
+    display: block !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 8pt;
+    color: #888;
+    border-top: 1px solid #ddd;
+    padding-top: 5px;
+  }
+
+  /* Hide interactive elements */
+  input,
+  select,
+  .inline-edit,
+  .action-buttons {
+    display: none !important;
+  }
+
+  /* Show static text instead of editable fields */
+  .print-value {
+    display: inline !important;
+  }
+
+  /* Remove shadows, borders decorations */
+  * {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Links as plain text */
+  a {
+    color: black !important;
+    text-decoration: none !important;
+  }
+}
+
+/* Screen-only: hide print elements */
+@media screen {
+  .print-header,
+  .print-footer {
+    display: none;
+  }
 }
