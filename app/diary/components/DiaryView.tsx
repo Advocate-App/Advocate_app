@@ -535,14 +535,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200" style={{ background: '#f8f8f5' }}>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pre Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Court</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Case No.</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Party Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stage</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Next Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <tr className="border-b border-gray-300" style={{ background: '#f0f0eb' }}>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Pre</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Court</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Case No.</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Party Name</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Stage</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Next Date</th>
+                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -560,58 +560,52 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       style={{ borderLeft: `4px solid ${borderColor}` }}
                     >
                       {/* Pre Date */}
-                      <td className="px-4 py-3 text-gray-600 font-mono text-xs whitespace-nowrap">
-                        {formatDD_MM(h.previous_hearing_date)}
+                      <td className="px-2 py-1.5 text-gray-600 font-mono text-[11px] whitespace-nowrap">
+                        {h.purpose === 'Case Commenced' ? (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">
+                            NEW
+                          </span>
+                        ) : (
+                          formatDD_MM(h.previous_hearing_date)
+                        )}
                       </td>
 
                       {/* Court */}
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-1.5">
                         <span
-                          className="inline-block px-2 py-1 rounded text-xs font-medium text-gray-700 whitespace-nowrap"
+                          className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium text-gray-700 whitespace-nowrap"
                           style={{ background: courtBg }}
                         >
-                          {getCourtLabel(courtCode || h.caseData.court_name)}
+                          {courtCode || h.caseData.court_name}
                         </span>
                       </td>
 
                       {/* Case No. */}
-                      <td className="px-4 py-3 font-mono text-xs text-gray-800 whitespace-nowrap">
-                        {h.caseData.case_type ? `${h.caseData.case_type} ` : ''}
+                      <td className="px-2 py-1.5 font-mono text-[11px] text-gray-800 whitespace-nowrap">
                         {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                       </td>
 
-                      {/* Party Name */}
-                      <td className="px-4 py-3 max-w-[250px]">
+                      {/* Party Name — clickable, opens case detail */}
+                      <td className="px-2 py-1.5 max-w-[220px]">
                         <Link
                           href={`/diary/cases/${h.case_id}`}
-                          className="text-sm font-medium hover:underline transition-colors"
+                          className="text-[12px] font-medium hover:underline transition-colors block truncate"
                           style={{ color: '#1e3a5f' }}
+                          title={`${h.caseData.party_plaintiff} vs ${h.caseData.party_defendant}`}
                         >
-                          {h.caseData.party_plaintiff}
-                          <span className="text-gray-400 font-normal"> vs </span>
-                          {h.caseData.party_defendant}
-                          {h.caseData.case_type && (
-                            <span className="text-gray-400 font-normal text-xs ml-1">
-                              ({h.caseData.case_type})
-                            </span>
-                          )}
+                          {h.caseData.party_plaintiff} <span className="text-gray-400">→</span> {h.caseData.party_defendant}
                         </Link>
-                        {h.appearing_advocate_name && (
-                          <p className="text-xs text-gray-400 italic mt-0.5">
-                            {h.appearing_advocate_name === 'self' ? 'Self' : h.appearing_advocate_name}
-                          </p>
-                        )}
                       </td>
 
                       {/* Stage — Inline Editable */}
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-1.5">
                         {editingStage === h.id ? (
                           <select
                             autoFocus
                             defaultValue={h.stage_on_date || ''}
                             onChange={(e) => saveStage(h.id, e.target.value)}
                             onBlur={() => setEditingStage(null)}
-                            className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-900 max-w-[140px]"
+                            className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 max-w-[120px]"
                           >
                             <option value="">--</option>
                             {stages.map((s) => (
@@ -621,7 +615,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         ) : (
                           <button
                             onClick={() => setEditingStage(h.id)}
-                            className="text-xs px-2 py-1 rounded hover:bg-gray-100 transition-colors text-gray-700 text-left"
+                            className="text-[11px] px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 text-left"
                             title="Click to change stage"
                           >
                             {h.stage_on_date || <span className="text-gray-300">--</span>}
@@ -630,7 +624,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       </td>
 
                       {/* Next Date — Inline Editable */}
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-1.5">
                         {editingNextDate === h.id ? (
                           <input
                             type="date"
@@ -638,12 +632,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             defaultValue={h.next_hearing_date || ''}
                             onChange={(e) => saveNextDate(h.id, e.target.value)}
                             onBlur={() => setEditingNextDate(null)}
-                            className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-900"
+                            className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900"
                           />
                         ) : (
                           <button
                             onClick={() => setEditingNextDate(h.id)}
-                            className="text-xs font-mono px-2 py-1 rounded hover:bg-gray-100 transition-colors text-gray-700"
+                            className="text-[11px] font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700"
                             title="Click to set next date"
                           >
                             {formatDD_MM(h.next_hearing_date)}
@@ -652,8 +646,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       </td>
 
                       {/* Actions */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
+                      <td className="px-2 py-1.5">
+                        <div className="flex items-center gap-1">
                           {/* Attended */}
                           {!h.happened ? (
                             <button
@@ -764,7 +758,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       {getCourtLabel(courtCode || h.caseData.court_name)}
                     </span>
                     <span className="text-xs font-mono text-gray-500">
-                      {h.caseData.case_type ? `${h.caseData.case_type} ` : ''}
                       {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                     </span>
                   </div>
@@ -787,7 +780,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
                   {/* Info row */}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
-                    <span>Pre: {formatDD_MM(h.previous_hearing_date)}</span>
+                    <span>
+                      {h.purpose === 'Case Commenced' ? (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-xs font-bold text-white bg-emerald-500">NEW</span>
+                      ) : (
+                        <>Pre: {formatDD_MM(h.previous_hearing_date)}</>
+                      )}
+                    </span>
                     <span>
                       Stage:{' '}
                       {editingStage === h.id ? (

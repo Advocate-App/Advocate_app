@@ -498,11 +498,25 @@ export default function NewCasePage() {
         return
       }
 
-      // Auto-create first hearing on the next hearing date
-      if (form.next_hearing_date) {
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      // 1. Create a "Case Commenced" hearing for TODAY so it shows in today's diary with NEW tag
+      await supabase.from('hearings').insert({
+        case_id: inserted.id,
+        hearing_date: todayStr,
+        stage_on_date: form.case_stage || null,
+        next_hearing_date: form.next_hearing_date || null,
+        purpose: 'Case Commenced',
+        appearing_advocate_name: 'self',
+        happened: true,
+      })
+
+      // 2. Create the actual next hearing so it shows in diary on that future date
+      if (form.next_hearing_date && form.next_hearing_date !== todayStr) {
         await supabase.from('hearings').insert({
           case_id: inserted.id,
           hearing_date: form.next_hearing_date,
+          previous_hearing_date: todayStr,
           stage_on_date: form.case_stage || null,
           purpose: null,
           appearing_advocate_name: 'self',
