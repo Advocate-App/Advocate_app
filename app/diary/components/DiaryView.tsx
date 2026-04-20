@@ -34,6 +34,7 @@ import {
   Search,
   X,
 } from 'lucide-react'
+import TaskBar from './TaskBar'
 
 // ──────────────────────────────── Types ────────────────────────────────
 
@@ -442,6 +443,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   return (
     <div className="max-w-6xl">
+      {advocateId && <TaskBar advocateId={advocateId} />}
       {/* ═══ Header Bar ═══ */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">

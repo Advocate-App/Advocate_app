@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Briefcase,
   Search,
+  Copy,
   User,
   Menu,
   X,
@@ -18,6 +19,7 @@ const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
   { href: '/diary/cases', label: 'All Cases', icon: Briefcase },
   { href: '/diary/search', label: 'Search', icon: Search },
+  { href: '/diary/copying', label: 'Copying', icon: Copy },
   { href: '/diary/profile', label: 'Profile', icon: User },
 ]
 
