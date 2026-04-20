@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   LogOut,
+  LayoutGrid,
 } from 'lucide-react'
 
 const navItems = [
@@ -25,10 +26,19 @@ const navItems = [
   { href: '/diary/profile', label: 'Profile', icon: User },
 ]
 
+const myApps = [
+  { name: 'Advocate Hub', url: 'https://advocate-diary-hub.vercel.app', color: '#1e3a5f', icon: '&#9878;', current: true },
+  { name: 'Udaipur Sports Club', url: 'https://udaipursportsclub.in', color: '#f97316', icon: '&#9917;', current: false },
+  { name: 'Metro ERP', url: 'https://metro-erp.vercel.app', color: '#059669', icon: '&#9879;', current: false },
+  { name: 'Warehouse Hub', url: 'https://udaipur-warehouse-hub.vercel.app', color: '#7c3aed', icon: '&#9889;', current: false },
+]
+
 export default function DiaryLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [advocateName, setAdvocateName] = useState('')
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false)
   const pathname = usePathname()
+  const appSwitcherRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function loadProfile() {
@@ -39,12 +49,24 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
           .from('advocates')
           .select('full_name')
           .eq('user_id', user.id)
+          .limit(1)
           .single()
         if (data) setAdvocateName(data.full_name)
         else setAdvocateName(user.email || '')
       }
     }
     loadProfile()
+  }, [])
+
+  // Close app switcher on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (appSwitcherRef.current && !appSwitcherRef.current.contains(e.target as Node)) {
+        setAppSwitcherOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
   async function handleLogout() {
@@ -113,7 +135,52 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
 
           <div className="lg:flex-1" />
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* App Switcher */}
+            <div ref={appSwitcherRef} className="relative">
+              <button
+                onClick={() => setAppSwitcherOpen(!appSwitcherOpen)}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Switch App"
+              >
+                <LayoutGrid className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {appSwitcherOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">My Apps</p>
+                  </div>
+                  <div className="p-2">
+                    {myApps.map((app) => (
+                      <a
+                        key={app.name}
+                        href={app.url}
+                        target={app.current ? '_self' : '_blank'}
+                        rel="noopener noreferrer"
+                        onClick={() => setAppSwitcherOpen(false)}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                          app.current ? 'bg-gray-50 font-medium' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <span
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-lg"
+                          style={{ background: app.color }}
+                          dangerouslySetInnerHTML={{ __html: app.icon }}
+                        />
+                        <div>
+                          <p className="text-gray-800">{app.name}</p>
+                          {app.current && (
+                            <p className="text-[10px] text-green-600 font-medium">Currently here</p>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <span className="text-sm text-gray-600 hidden sm:block">{advocateName}</span>
             <button
               onClick={handleLogout}
