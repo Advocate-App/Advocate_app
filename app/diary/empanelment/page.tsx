@@ -33,6 +33,7 @@ interface Organization {
 interface Application {
   id: string
   organization_id: string
+  advocate_id: string | null
   status: string
 }
 
@@ -62,19 +63,41 @@ const STATUS_CONFIG: Record<AppStatus, { label: string; bg: string; text: string
   father_empanelled: { label: 'Father Empanelled', bg: '#d1fae5', text: '#065f46' },
 }
 
+interface Advocate {
+  id: string
+  full_name: string
+  email: string | null
+}
+
 export default function EmpanelmentPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [applications, setApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [advocates, setAdvocates] = useState<Advocate[]>([])
+  const [selectedAdvocateId, setSelectedAdvocateId] = useState<string>('')
 
   useEffect(() => {
     async function load() {
       const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get both advocate profiles for this user
+      const { data: advData } = await supabase
+        .from('advocates')
+        .select('id, full_name, email')
+        .eq('user_id', user.id)
+
+      if (advData && advData.length > 0) {
+        setAdvocates(advData)
+        setSelectedAdvocateId(advData[0].id) // Default to first (Avi)
+      }
+
       const [orgsRes, appsRes] = await Promise.all([
         supabase.from('target_organizations').select('*').order('priority', { ascending: true }).order('name'),
-        supabase.from('applications').select('id, organization_id, status'),
+        supabase.from('applications').select('id, organization_id, status, advocate_id').order('created_at', { ascending: false }),
       ])
       if (orgsRes.data) setOrganizations(orgsRes.data)
       if (appsRes.data) setApplications(appsRes.data)
@@ -85,10 +108,12 @@ export default function EmpanelmentPage() {
 
   function getStatus(org: Organization): AppStatus {
     if ((FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.name)) return 'father_empanelled'
-    const app = applications.find((a) => a.organization_id === org.id)
+    const app = applications.find((a) => a.organization_id === org.id && a.advocate_id === selectedAdvocateId)
     if (!app) return 'new'
     return app.status as AppStatus
   }
+
+  const selectedAdvocate = advocates.find(a => a.id === selectedAdvocateId)
 
   const orgWithStatus = useMemo(() => {
     return organizations.map((org) => ({
@@ -96,7 +121,7 @@ export default function EmpanelmentPage() {
       appStatus: getStatus(org),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizations, applications])
+  }, [organizations, applications, selectedAdvocateId])
 
   const filtered = useMemo(() => {
     let list = orgWithStatus
@@ -160,12 +185,40 @@ export default function EmpanelmentPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <h1
-        className="text-2xl font-bold"
-        style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}
-      >
-        Empanelment CRM
-      </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h1
+          className="text-2xl font-bold"
+          style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}
+        >
+          Empanelment CRM
+        </h1>
+
+        {/* Advocate Switcher */}
+        {advocates.length > 1 && (
+          <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1">
+            {advocates.map((adv) => (
+              <button
+                key={adv.id}
+                onClick={() => setSelectedAdvocateId(adv.id)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  selectedAdvocateId === adv.id
+                    ? 'text-white'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+                style={selectedAdvocateId === adv.id ? { background: '#1e3a5f' } : undefined}
+              >
+                {adv.full_name.split(' ')[0]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {selectedAdvocate && (
+        <p className="text-sm text-gray-500 -mt-4">
+          Tracking applications for <strong>{selectedAdvocate.full_name}</strong> ({selectedAdvocate.email})
+        </p>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
