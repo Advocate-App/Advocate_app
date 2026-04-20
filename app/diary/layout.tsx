@@ -26,12 +26,19 @@ const navItems = [
   { href: '/diary/profile', label: 'Profile', icon: User },
 ]
 
+const SSO_KEY = '94c1a5172f3a7c1c7e766d1970db46fa41d3dbeb32cdcab7'
+
 const myApps = [
-  { name: 'Advocate Hub', url: 'https://advocate-diary-hub.vercel.app', color: '#1e3a5f', icon: '&#9878;', current: true },
-  { name: 'Udaipur Sports Club', url: 'https://udaipursportsclub.in', color: '#f97316', icon: '&#9917;', current: false },
-  { name: 'Metro ERP', url: 'https://metro-erp.vercel.app', color: '#059669', icon: '&#9879;', current: false },
-  { name: 'Warehouse Hub', url: 'https://udaipur-warehouse-hub.vercel.app', color: '#7c3aed', icon: '&#9889;', current: false },
+  { name: 'Advocate Hub', baseUrl: 'https://advocate-diary-hub.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/diary', color: '#1e3a5f', icon: '&#9878;', current: true },
+  { name: 'Udaipur Sports Club', baseUrl: 'https://udaipursportsclub.in', loginPath: '/auth/auto-login', defaultPath: '/dashboard', color: '#f97316', icon: '&#9917;', current: false },
+  { name: 'Metro ERP', baseUrl: 'https://metro-erp.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/dashboard', color: '#059669', icon: '&#9879;', current: false },
+  { name: 'Warehouse Hub', baseUrl: 'https://udaipur-warehouse-hub.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/', color: '#7c3aed', icon: '&#9889;', current: false },
 ]
+
+function getAppUrl(app: typeof myApps[0]): string {
+  if (app.current) return app.baseUrl + app.defaultPath
+  return `${app.baseUrl}${app.loginPath}?key=${SSO_KEY}&redirect=${app.defaultPath}`
+}
 
 export default function DiaryLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -155,8 +162,8 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
                     {myApps.map((app) => (
                       <a
                         key={app.name}
-                        href={app.url}
-                        target={app.current ? '_self' : '_blank'}
+                        href={getAppUrl(app)}
+                        target="_self"
                         rel="noopener noreferrer"
                         onClick={() => setAppSwitcherOpen(false)}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
