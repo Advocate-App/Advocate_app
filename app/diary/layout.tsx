@@ -9,6 +9,7 @@ import {
   Briefcase,
   Search,
   Copy,
+  Send,
   User,
   Menu,
   X,
@@ -20,6 +21,7 @@ const navItems = [
   { href: '/diary/cases', label: 'All Cases', icon: Briefcase },
   { href: '/diary/search', label: 'Search', icon: Search },
   { href: '/diary/copying', label: 'Copying', icon: Copy },
+  { href: '/diary/empanelment', label: 'Empanelment', icon: Send },
   { href: '/diary/profile', label: 'Profile', icon: User },
 ]
 
