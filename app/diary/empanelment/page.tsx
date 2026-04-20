@@ -13,19 +13,7 @@ import {
   Loader2,
   Search,
 } from 'lucide-react'
-
-const FATHER_EMPANELLED = [
-  'SBI General Insurance',
-  'New India Assurance',
-  'Oriental Insurance',
-  'National Insurance',
-  'United India Insurance',
-  'ICICI Lombard',
-  'Bajaj Allianz General Insurance',
-  'IFFCO-Tokio',
-  'Future Generali India Insurance',
-  'Universal Sompo General Insurance',
-]
+import { FATHER_EMPANELLED_COMPANIES } from '@/lib/constants/empanelment'
 
 type Segment = 'insurance' | 'bank' | 'nbfc' | 'psu' | 'govt'
 type Priority = 'high' | 'medium' | 'low'
@@ -96,7 +84,7 @@ export default function EmpanelmentPage() {
   }, [])
 
   function getStatus(org: Organization): AppStatus {
-    if (FATHER_EMPANELLED.includes(org.name)) return 'father_empanelled'
+    if ((FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.name)) return 'father_empanelled'
     const app = applications.find((a) => a.organization_id === org.id)
     if (!app) return 'new'
     return app.status as AppStatus
