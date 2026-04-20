@@ -9,8 +9,23 @@ const MAX_EMAILS_PER_RUN = 5
 export async function GET(request: Request) {
   // Verify cron secret
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const expectedSecret = process.env.CRON_SECRET
+  if (!expectedSecret) {
+    console.error('CRON_SECRET env var is not set in Vercel')
+    return NextResponse.json({ error: 'Server misconfigured: CRON_SECRET missing' }, { status: 500 })
+  }
+  if (authHeader !== `Bearer ${expectedSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Check required Google env vars before doing any DB work
+  const missingEnv: string[] = []
+  if (!process.env.GOOGLE_CLIENT_ID_AVI) missingEnv.push('GOOGLE_CLIENT_ID_AVI')
+  if (!process.env.GOOGLE_CLIENT_SECRET_AVI) missingEnv.push('GOOGLE_CLIENT_SECRET_AVI')
+  if (!process.env.GOOGLE_AVI_REFRESH_TOKEN && !process.env.GOOGLE_REFRESH_TOKEN_AVI) missingEnv.push('GOOGLE_AVI_REFRESH_TOKEN')
+  if (missingEnv.length > 0) {
+    console.error('Missing env vars:', missingEnv)
+    return NextResponse.json({ error: 'Missing env vars: ' + missingEnv.join(', ') }, { status: 500 })
   }
 
   try {
