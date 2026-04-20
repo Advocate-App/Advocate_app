@@ -22,6 +22,7 @@ export async function GET(request: Request) {
       .select(`
         id,
         organization_id,
+        advocate_id,
         subject,
         body,
         status,
@@ -31,6 +32,11 @@ export async function GET(request: Request) {
           email,
           priority,
           segment
+        ),
+        advocates (
+          id,
+          full_name,
+          email
         )
       `)
       .eq('status', 'ready_to_send')
@@ -89,13 +95,25 @@ export async function GET(request: Request) {
         continue
       }
 
-      // Send email from Avi's account
+      // Determine which Gmail account to send from based on advocate
+      const advocate = app.advocates as unknown as {
+        id: string
+        full_name: string
+        email: string | null
+      } | null
+
+      const isRatnesh = advocate?.email === 'ratneshshah67@gmail.com'
+      const account: 'avi' | 'ratnesh' = isRatnesh ? 'ratnesh' : 'avi'
+      const fromName = isRatnesh ? 'Ratnesh Kumar Jain Shah' : 'Avi Jain'
+      const fromEmail = isRatnesh ? 'ratneshshah67@gmail.com' : 'jainavi.aj@gmail.com'
+
+      // Send email from the right account
       const result = await sendGmail(
-        'avi',
+        account,
         org.email,
         app.subject,
         app.body,
-        'Avi Jain <jainavi.aj@gmail.com>'
+        `${fromName} <${fromEmail}>`
       )
 
       if ('error' in result) {

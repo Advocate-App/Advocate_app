@@ -6,8 +6,14 @@ import { sendGmail } from '@/lib/gmail'
 /** Max follow-ups per cron run */
 const MAX_FOLLOWUPS_PER_RUN = 3
 
-/** Days to wait before sending a follow-up */
-const FOLLOWUP_DELAY_DAYS = 30
+/** Days to wait before sending follow-up 1 after initial send */
+const FOLLOWUP_1_DELAY_DAYS = 15
+
+/** Days to wait before sending follow-up 2 after follow-up 1 */
+const FOLLOWUP_2_DELAY_DAYS = 15
+
+/** Days to wait before re-contacting after follow-up 2 (fresh application) */
+const RECONTACT_DELAY_DAYS = 60
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -78,13 +84,15 @@ export async function GET(request: Request) {
   try {
     const supabase = createAdminClient()
     const now = new Date()
-    const cutoffDate = new Date(now.getTime() - FOLLOWUP_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    const followup1Cutoff = new Date(now.getTime() - FOLLOWUP_1_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    const followup2Cutoff = new Date(now.getTime() - FOLLOWUP_2_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    const recontactCutoff = new Date(now.getTime() - RECONTACT_DELAY_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
     let followupsSent = 0
     const errors: string[] = []
     const skipped: string[] = []
 
-    // --- Follow-up 1: applications sent > 30 days ago, no follow-up 1 yet ---
+    // --- Follow-up 1: applications sent > 15 days ago, no follow-up 1 yet ---
     const { data: followup1Apps } = await supabase
       .from('applications')
       .select(`
@@ -97,7 +105,7 @@ export async function GET(request: Request) {
         )
       `)
       .eq('status', 'sent')
-      .lt('application_sent_at', cutoffDate)
+      .lt('application_sent_at', followup1Cutoff)
       .is('followup1_sent_at', null)
       .limit(MAX_FOLLOWUPS_PER_RUN)
 
@@ -177,7 +185,7 @@ export async function GET(request: Request) {
           )
         `)
         .eq('status', 'followup_1_sent')
-        .lt('followup1_sent_at', cutoffDate)
+        .lt('followup1_sent_at', followup2Cutoff)
         .is('followup2_sent_at', null)
         .limit(remaining)
 
@@ -240,9 +248,36 @@ export async function GET(request: Request) {
       }
     }
 
+    // --- Re-contact: 60 days after follow-up 2, reset to ready_to_send ---
+    const { data: recontactApps } = await supabase
+      .from('applications')
+      .select('id, organization_id')
+      .eq('status', 'followup_2_sent')
+      .lt('followup2_sent_at', recontactCutoff)
+      .limit(5)
+
+    let recontacted = 0
+    if (recontactApps) {
+      for (const app of recontactApps) {
+        const nowStr = new Date().toISOString()
+        await supabase
+          .from('applications')
+          .update({
+            status: 'ready_to_send',
+            followup1_sent_at: null,
+            followup2_sent_at: null,
+            application_sent_at: null,
+            updated_at: nowStr,
+          })
+          .eq('id', app.id)
+        recontacted++
+      }
+    }
+
     return NextResponse.json({
       success: true,
       followupsSent,
+      recontacted,
       skipped: skipped.length > 0 ? skipped : undefined,
       errors: errors.length > 0 ? errors : undefined,
     })
