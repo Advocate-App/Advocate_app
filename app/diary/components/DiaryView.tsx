@@ -251,10 +251,36 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     fetchHearings()
   }
 
-  // ──── Inline next date edit ────
+  // ──── Inline next date edit — also creates a new hearing on that date ────
   async function saveNextDate(hearingId: string, newDate: string) {
     const supabase = createClient()
+    const hearing = hearings.find(h => h.id === hearingId)
+
+    // Update current hearing's next_hearing_date
     await supabase.from('hearings').update({ next_hearing_date: newDate || null }).eq('id', hearingId)
+
+    // Auto-create a new hearing row on the next date so it shows in diary
+    if (newDate && hearing) {
+      // Check if a hearing already exists for this case on that date
+      const { data: existing } = await supabase
+        .from('hearings')
+        .select('id')
+        .eq('case_id', hearing.case_id)
+        .eq('hearing_date', newDate)
+        .limit(1)
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('hearings').insert({
+          case_id: hearing.case_id,
+          hearing_date: newDate,
+          previous_hearing_date: hearing.hearing_date,
+          stage_on_date: hearing.stage_on_date,
+          appearing_advocate_name: hearing.appearing_advocate_name || 'self',
+          happened: false,
+        })
+      }
+    }
+
     setEditingNextDate(null)
     fetchHearings()
   }
@@ -340,6 +366,27 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       outcome_notes: newHearingForm.notes || null,
       happened: false,
     })
+
+    // Auto-create next hearing if next date is provided
+    if (newHearingForm.next_hearing_date) {
+      const { data: existing } = await supabase
+        .from('hearings')
+        .select('id')
+        .eq('case_id', selectedCase.id)
+        .eq('hearing_date', newHearingForm.next_hearing_date)
+        .limit(1)
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('hearings').insert({
+          case_id: selectedCase.id,
+          hearing_date: newHearingForm.next_hearing_date,
+          previous_hearing_date: newHearingForm.hearing_date,
+          stage_on_date: newHearingForm.stage_on_date || null,
+          appearing_advocate_name: newHearingForm.appearing_advocate_name || 'self',
+          happened: false,
+        })
+      }
+    }
 
     setAddSaving(false)
     resetAddModal()

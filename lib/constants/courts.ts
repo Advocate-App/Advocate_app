@@ -81,7 +81,9 @@ export function getCourtLabel(code: string): string {
 
 export function eCourtsDeepLink(cnr: string | null): string | null {
   if (!cnr) return null
-  return `https://services.ecourts.gov.in/ecourtindia_v6/?p=cnr_status/searchByCNR&app_token=&cino=${cnr}`
+  // eCourts case status search page — user can paste CNR there
+  // Direct CNR deep links no longer work reliably, so we link to the search page
+  return `https://services.ecourts.gov.in/ecourtindia_v6/?p=casestatus/index&app_token=&cino=${encodeURIComponent(cnr)}`
 }
 
 export function formatCaseNumber(num: string, year: number | null): string {

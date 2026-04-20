@@ -297,10 +297,31 @@ export default function CaseDetailPage() {
       await supabase.from('hearings').insert(row)
     }
 
-    // Also update case_stage and next hearing if provided
+    // Also update case_stage if provided
     if (hearingForm.stage_on_date && caseData) {
       await supabase.from('cases').update({ case_stage: hearingForm.stage_on_date }).eq('id', id)
       setCaseData({ ...caseData, case_stage: hearingForm.stage_on_date })
+    }
+
+    // Auto-create next hearing if next date is provided (so it shows in diary)
+    if (hearingForm.next_hearing_date && !editingHearingId) {
+      const { data: existing } = await supabase
+        .from('hearings')
+        .select('id')
+        .eq('case_id', id)
+        .eq('hearing_date', hearingForm.next_hearing_date)
+        .limit(1)
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('hearings').insert({
+          case_id: id,
+          hearing_date: hearingForm.next_hearing_date,
+          previous_hearing_date: hearingForm.hearing_date,
+          stage_on_date: hearingForm.stage_on_date || null,
+          appearing_advocate_name: hearingForm.appearing_advocate_name || 'self',
+          happened: false,
+        })
+      }
     }
 
     setHearingSaving(false)

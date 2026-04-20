@@ -42,6 +42,8 @@ interface FormData {
   court_name_custom: string   // free text when "OTHER" selected
   // hc-specific
   hc_bench: string
+  // first hearing
+  next_hearing_date: string
 }
 
 interface FieldErrors {
@@ -66,6 +68,7 @@ const INITIAL: FormData = {
   court_code: '',
   court_name_custom: '',
   hc_bench: '',
+  next_hearing_date: '',
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +408,8 @@ export default function NewCasePage() {
       if (!form.hc_bench) e.hc_bench = 'Bench selection is required'
     }
 
+    if (!form.next_hearing_date) e.next_hearing_date = 'Next hearing date is required'
+
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -491,6 +496,18 @@ export default function NewCasePage() {
         setSaveError(insertError.message)
         setSaving(false)
         return
+      }
+
+      // Auto-create first hearing on the next hearing date
+      if (form.next_hearing_date) {
+        await supabase.from('hearings').insert({
+          case_id: inserted.id,
+          hearing_date: form.next_hearing_date,
+          stage_on_date: form.case_stage || null,
+          purpose: null,
+          appearing_advocate_name: 'self',
+          happened: false,
+        })
       }
 
       router.push(`/diary/cases/${inserted.id}`)
@@ -737,7 +754,7 @@ export default function NewCasePage() {
             Status & Filing
           </h3>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <TextInput
               label="Filed Date"
               value={form.filed_date}
@@ -751,6 +768,17 @@ export default function NewCasePage() {
               onChange={(v) => set('case_stage', v)}
               placeholder="Select stage..."
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <TextInput
+              label="Next Hearing Date"
+              value={form.next_hearing_date}
+              onChange={(v) => set('next_hearing_date', v)}
+              type="date"
+              required
+              error={errors.next_hearing_date}
+            />
             <TextInput
               label="eCourts CNR"
               value={form.ecourts_cnr}
@@ -758,6 +786,10 @@ export default function NewCasePage() {
               placeholder="e.g. RJUD020012345672026"
             />
           </div>
+
+          <p className="text-xs text-gray-400">
+            The case will automatically appear in your diary on the next hearing date.
+          </p>
         </div>
 
         {/* ---- Section 5: Notes ---- */}
