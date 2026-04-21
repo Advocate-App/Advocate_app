@@ -67,7 +67,8 @@ function buildMimeMessage(
   from: string,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  extraHeaders?: Record<string, string>
 ): string {
   const mimeLines = [
     `From: ${from}`,
@@ -75,9 +76,13 @@ function buildMimeMessage(
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
-    '',
-    body,
   ]
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      mimeLines.push(`${key}: ${value}`)
+    }
+  }
+  mimeLines.push('', body)
   const raw = mimeLines.join('\r\n')
   return Buffer.from(raw)
     .toString('base64')
@@ -129,4 +134,74 @@ export async function sendGmail(
     console.error('sendGmail error:', message)
     return { error: message }
   }
+}
+
+/**
+ * Send a reply in the same Gmail thread.
+ */
+export async function replyGmail(
+  account: 'avi' | 'ratnesh',
+  to: string,
+  subject: string,
+  body: string,
+  threadId: string,
+  inReplyToMessageId: string
+): Promise<{ messageId: string } | { error: string }> {
+  try {
+    const creds = getCredentials(account)
+    const accessToken = await getAccessToken(account)
+
+    const fromHeader = `${creds.fromName} <${creds.fromEmail}>`
+    const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`
+    const rawMessage = buildMimeMessage(fromHeader, to, replySubject, body, {
+      'In-Reply-To': inReplyToMessageId,
+      References: inReplyToMessageId,
+    })
+
+    const sendRes = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw: rawMessage, threadId }),
+      }
+    )
+
+    if (!sendRes.ok) {
+      const errText = await sendRes.text()
+      console.error('Gmail reply failed:', errText)
+      return { error: `Gmail reply failed: ${errText}` }
+    }
+
+    const sendData = await sendRes.json()
+    return { messageId: sendData.id }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown Gmail error'
+    console.error('replyGmail error:', message)
+    return { error: message }
+  }
+}
+
+/**
+ * Mark a Gmail message as unread.
+ */
+export async function markAsUnread(
+  account: 'avi' | 'ratnesh',
+  messageId: string,
+  accessToken: string
+): Promise<void> {
+  await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ addLabelIds: ['UNREAD'] }),
+    }
+  )
 }

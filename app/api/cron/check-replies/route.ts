@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAccessToken } from '@/lib/gmail'
+import { getAccessToken, replyGmail, markAsUnread } from '@/lib/gmail'
 
 interface GmailMessage {
   id: string
@@ -65,7 +65,8 @@ function analyzeSentiment(text: string): 'positive' | 'negative' | 'neutral' {
 
 export async function GET(request: Request) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization')
+  const { searchParams } = new URL(request.url)
+  const authHeader = request.headers.get('authorization') || (searchParams.get('key') ? `Bearer ${searchParams.get('key')}` : null)
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -77,8 +78,8 @@ export async function GET(request: Request) {
     // Get all target organization emails for matching
     const { data: orgs, error: orgsError } = await supabase
       .from('target_organizations')
-      .select('id, name, email')
-      .not('email', 'is', null)
+      .select('id, organization_name, contact_email')
+      .not('contact_email', 'is', null)
 
     if (orgsError || !orgs) {
       return NextResponse.json(
@@ -90,8 +91,8 @@ export async function GET(request: Request) {
     // Build a map of email -> org for quick lookup
     const emailToOrg = new Map<string, { id: string; name: string }>(
       orgs
-        .filter((o) => o.email)
-        .map((o) => [o.email!.toLowerCase(), { id: o.id, name: o.name }])
+        .filter((o) => o.contact_email)
+        .map((o) => [o.contact_email!.toLowerCase(), { id: o.id, name: o.organization_name }])
     )
 
     // Search Gmail for unread messages in inbox
@@ -139,11 +140,19 @@ export async function GET(request: Request) {
       const fullMessage: GmailMessageFull = await msgRes.json()
       const senderEmail = extractSenderEmail(fullMessage.payload.headers)
 
-      if (!senderEmail) continue
+      if (!senderEmail) {
+        // Can't determine sender — restore unread so nothing is lost
+        await markAsUnread('avi', msg.id, accessToken)
+        continue
+      }
 
       // Check if sender matches any target organization
       const matchedOrg = emailToOrg.get(senderEmail)
-      if (!matchedOrg) continue
+      if (!matchedOrg) {
+        // Irrelevant email — mark back as unread so inbox is undisturbed
+        await markAsUnread('avi', msg.id, accessToken)
+        continue
+      }
 
       // Found a reply from a target organization
       const bodyText = getMessageBody(fullMessage)
@@ -178,6 +187,33 @@ export async function GET(request: Request) {
         application_id: app.id,
         status: 'under_review',
       })
+
+      // Send acknowledgment reply in the same thread
+      const subjectHeader = fullMessage.payload.headers.find(
+        (h) => h.name.toLowerCase() === 'subject'
+      )
+      const gmailMsgIdHeader = fullMessage.payload.headers.find(
+        (h) => h.name.toLowerCase() === 'message-id'
+      )
+      const replySubject = subjectHeader?.value || 'Re: Empanelment Application'
+      const gmailMsgId = gmailMsgIdHeader?.value || ''
+
+      await replyGmail(
+        'avi',
+        senderEmail,
+        replySubject,
+        `Respected Sir/Madam,
+
+Thank you for your response regarding the empanelment application. I have noted your reply and will follow up as needed.
+
+Respectfully yours,
+Avi Jain
+Advocate, Bar Council of Rajasthan (R/7238/2025)
+Chamber No. 39, District Court, Udaipur
+Email: jainavi.aj@gmail.com`,
+        msg.threadId,
+        gmailMsgId
+      )
 
       matched.push(`${matchedOrg.name} (${sentiment})`)
       repliesProcessed++
