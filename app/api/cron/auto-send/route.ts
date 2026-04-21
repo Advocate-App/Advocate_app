@@ -8,7 +8,8 @@ const MAX_EMAILS_PER_RUN = 5
 
 export async function GET(request: Request) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization')
+  const { searchParams } = new URL(request.url)
+  const authHeader = request.headers.get('authorization') || (searchParams.get('key') ? `Bearer ${searchParams.get('key')}` : null)
   const expectedSecret = process.env.CRON_SECRET
   if (!expectedSecret) {
     console.error('CRON_SECRET env var is not set in Vercel')
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Check required Google env vars before doing any DB work
+  // Check required Google env vars
   const missingEnv: string[] = []
   if (!process.env.GOOGLE_CLIENT_ID_AVI) missingEnv.push('GOOGLE_CLIENT_ID_AVI')
   if (!process.env.GOOGLE_CLIENT_SECRET_AVI) missingEnv.push('GOOGLE_CLIENT_SECRET_AVI')
@@ -31,20 +32,20 @@ export async function GET(request: Request) {
   try {
     const supabase = createAdminClient()
 
-    // Get applications ready to send, ordered by priority (via org join)
+    // Get applications ready to send
     const { data: apps, error: appsError } = await supabase
       .from('applications')
       .select(`
         id,
         organization_id,
         advocate_id,
-        subject,
-        body,
+        draft_subject,
+        draft_body,
         status,
         target_organizations (
           id,
-          name,
-          email,
+          organization_name,
+          contact_email,
           priority,
           segment
         ),
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
     if (appsError) {
       console.error('Failed to fetch ready_to_send applications:', appsError)
       return NextResponse.json(
-        { error: 'Failed to fetch applications' },
+        { error: 'Failed to fetch applications', detail: appsError.message },
         { status: 500 }
       )
     }
@@ -78,11 +79,10 @@ export async function GET(request: Request) {
     const errors: string[] = []
 
     for (const app of apps) {
-      // target_organizations comes as a single object from a FK join
       const org = app.target_organizations as unknown as {
         id: string
-        name: string
-        email: string | null
+        organization_name: string
+        contact_email: string | null
         priority: string
         segment: string
       } | null
@@ -92,25 +92,30 @@ export async function GET(request: Request) {
         continue
       }
 
-      // Double-check: never send to father's empanelled companies
-      if (isFatherEmpanelled(org.name)) {
-        skipped.push(`${org.name} — father already empanelled`)
+      // Never send to father's empanelled companies
+      if (isFatherEmpanelled(org.organization_name)) {
+        skipped.push(`${org.organization_name} — father already empanelled`)
         continue
       }
 
-      // Must have a contact email
-      if (!org.email) {
-        skipped.push(`${org.name} — no email`)
-        console.log(`No email for ${org.name}, skipping`)
+      if (!org.contact_email) {
+        // Move to skipped so it doesn't block the queue forever
+        await supabase
+          .from('applications')
+          .update({ status: 'skipped', updated_at: new Date().toISOString() })
+          .eq('id', app.id)
+        skipped.push(`${org.organization_name} — no email`)
         continue
       }
 
-      if (!app.subject || !app.body) {
-        skipped.push(`${org.name} — empty draft`)
+      const subject = (app as unknown as { draft_subject: string }).draft_subject
+      const body = (app as unknown as { draft_body: string }).draft_body
+
+      if (!subject || !body) {
+        skipped.push(`${org.organization_name} — empty draft`)
         continue
       }
 
-      // Determine which Gmail account to send from based on advocate
       const advocate = app.advocates as unknown as {
         id: string
         full_name: string
@@ -122,46 +127,42 @@ export async function GET(request: Request) {
       const fromName = isRatnesh ? 'Ratnesh Kumar Jain Shah' : 'Avi Jain'
       const fromEmail = isRatnesh ? 'ratneshshah67@gmail.com' : 'jainavi.aj@gmail.com'
 
-      // Send email from the right account
       const result = await sendGmail(
         account,
-        org.email,
-        app.subject,
-        app.body,
+        org.contact_email,
+        subject,
+        body,
         `${fromName} <${fromEmail}>`
       )
 
       if ('error' in result) {
-        errors.push(`Failed to send to ${org.name}: ${result.error}`)
+        errors.push(`Failed to send to ${org.organization_name}: ${result.error}`)
         continue
       }
 
-      // Update application status
       const now = new Date().toISOString()
       const { error: updateError } = await supabase
         .from('applications')
         .update({
           status: 'sent',
-          send_method: 'email',
-          sent_date: now.split('T')[0],
+          application_method: 'email',
           application_sent_at: now,
           updated_at: now,
         })
         .eq('id', app.id)
 
       if (updateError) {
-        errors.push(`Sent to ${org.name} but failed to update status: ${updateError.message}`)
+        errors.push(`Sent to ${org.organization_name} but failed to update status: ${updateError.message}`)
         continue
       }
 
-      // Log status history
       await supabase.from('application_status_history').insert({
         application_id: app.id,
         status: 'sent',
       })
 
       sentCount++
-      console.log(`Sent empanelment email to ${org.name} (${org.email}), messageId: ${result.messageId}`)
+      console.log(`Sent empanelment email to ${org.organization_name} (${org.contact_email})`)
     }
 
     return NextResponse.json({
