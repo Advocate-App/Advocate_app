@@ -55,19 +55,37 @@ const PRIORITY_COLORS: Record<Priority, { bg: string; text: string }> = {
 }
 
 const STATUS_CONFIG: Record<AppStatus, { label: string; bg: string; text: string }> = {
-  new: { label: 'New', bg: '#e0e7ff', text: '#3730a3' },
+  new: { label: 'New', bg: '#f3f4f6', text: '#6b7280' },
   drafted: { label: 'Drafted', bg: '#fef3c7', text: '#92400e' },
-  ready_to_send: { label: 'Ready to Send', bg: '#fce7f3', text: '#9d174d' },
+  ready_to_send: { label: 'Ready', bg: '#fce7f3', text: '#9d174d' },
   sent: { label: 'Sent', bg: '#dbeafe', text: '#1e40af' },
-  under_review: { label: 'Under Review', bg: '#e0e7ff', text: '#3730a3' },
+  under_review: { label: 'Review', bg: '#e0e7ff', text: '#3730a3' },
   empanelled: { label: 'Empanelled', bg: '#d1fae5', text: '#065f46' },
-  father_empanelled: { label: 'Father Empanelled', bg: '#d1fae5', text: '#065f46' },
+  father_empanelled: { label: 'Father ✓', bg: '#d1fae5', text: '#065f46' },
 }
 
 interface Advocate {
   id: string
   full_name: string
   email: string | null
+}
+
+const SEGMENT_ORDER: Record<string, number> = {
+  insurance: 1,
+  bank: 2,
+  nbfc: 3,
+  psu_central: 4,
+  psu_state: 5,
+  govt_dept: 6,
+}
+
+const SEGMENT_LABELS: Record<string, string> = {
+  insurance: 'Insurance Companies',
+  bank: 'Banks',
+  nbfc: 'NBFCs',
+  psu_central: 'Central PSUs',
+  psu_state: 'State PSUs',
+  govt_dept: 'Govt. Departments',
 }
 
 export default function EmpanelmentPage() {
@@ -77,7 +95,6 @@ export default function EmpanelmentPage() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [advocates, setAdvocates] = useState<Advocate[]>([])
-  const [selectedAdvocateId, setSelectedAdvocateId] = useState<string>('')
 
   useEffect(() => {
     async function load() {
@@ -85,16 +102,12 @@ export default function EmpanelmentPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Get both advocate profiles for this user
       const { data: advData } = await supabase
         .from('advocates')
         .select('id, full_name, email')
         .eq('user_id', user.id)
 
-      if (advData && advData.length > 0) {
-        setAdvocates(advData)
-        setSelectedAdvocateId(advData[0].id) // Default to first (Avi)
-      }
+      if (advData && advData.length > 0) setAdvocates(advData)
 
       const [orgsRes, appsRes] = await Promise.all([
         supabase.from('target_organizations').select('*').order('priority', { ascending: true }).order('organization_name'),
@@ -107,22 +120,24 @@ export default function EmpanelmentPage() {
     load()
   }, [])
 
-  function getStatus(org: Organization): AppStatus {
+  function getStatusForAdvocate(org: Organization, advocateId: string): AppStatus {
     if ((FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.organization_name)) return 'father_empanelled'
-    const app = applications.find((a) => a.organization_id === org.id && a.advocate_id === selectedAdvocateId)
+    const app = applications.find((a) => a.organization_id === org.id && a.advocate_id === advocateId)
     if (!app) return 'new'
     return app.status as AppStatus
   }
 
-  const selectedAdvocate = advocates.find(a => a.id === selectedAdvocateId)
-
   const orgWithStatus = useMemo(() => {
     return organizations.map((org) => ({
       ...org,
-      appStatus: getStatus(org),
+      statuses: advocates.map(adv => ({
+        advocateId: adv.id,
+        advocateName: adv.full_name.split(' ')[0],
+        status: getStatusForAdvocate(org, adv.id),
+      })),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizations, applications, selectedAdvocateId])
+  }, [organizations, applications, advocates])
 
   const filtered = useMemo(() => {
     let list = orgWithStatus
@@ -144,36 +159,33 @@ export default function EmpanelmentPage() {
     return list
   }, [orgWithStatus, activeTab, searchQuery])
 
-  const stats = useMemo(() => {
-    const counts = {
-      total: orgWithStatus.length,
-      new: 0,
-      drafted: 0,
-      sent: 0,
-      under_review: 0,
-      empanelled: 0,
-      father_empanelled: 0,
+  // Group by segment
+  const grouped = useMemo(() => {
+    const map: Record<string, typeof filtered> = {}
+    for (const org of filtered) {
+      if (!map[org.segment]) map[org.segment] = []
+      map[org.segment].push(org)
     }
-    orgWithStatus.forEach((o) => {
-      if (o.appStatus === 'new') counts.new++
-      else if (o.appStatus === 'drafted' || o.appStatus === 'ready_to_send') counts.drafted++
-      else if (o.appStatus === 'sent') counts.sent++
-      else if (o.appStatus === 'under_review') counts.under_review++
-      else if (o.appStatus === 'empanelled') counts.empanelled++
-      else if (o.appStatus === 'father_empanelled') counts.father_empanelled++
-    })
-    return counts
-  }, [orgWithStatus])
+    return Object.entries(map).sort(([a], [b]) => (SEGMENT_ORDER[a] || 99) - (SEGMENT_ORDER[b] || 99))
+  }, [filtered])
 
-  const statCards = [
-    { label: 'Total Targets', value: stats.total, icon: Building2, color: '#1e3a5f' },
-    { label: 'New', value: stats.new, icon: FileText, color: '#3730a3' },
-    { label: 'Drafted', value: stats.drafted, icon: FileText, color: '#92400e' },
-    { label: 'Sent', value: stats.sent, icon: Send, color: '#1e40af' },
-    { label: 'Under Review', value: stats.under_review, icon: Clock, color: '#7c3aed' },
-    { label: 'Empanelled', value: stats.empanelled, icon: CheckCircle2, color: '#065f46' },
-    { label: 'Already Empanelled', value: stats.father_empanelled, icon: ShieldCheck, color: '#059669' },
-  ]
+  const stats = useMemo(() => {
+    const counts: Record<string, { new: number; drafted: number; sent: number; under_review: number; empanelled: number }> = {}
+    for (const adv of advocates) {
+      counts[adv.id] = { new: 0, drafted: 0, sent: 0, under_review: 0, empanelled: 0 }
+    }
+    for (const org of orgWithStatus) {
+      for (const s of org.statuses) {
+        if (!counts[s.advocateId]) continue
+        if (s.status === 'new') counts[s.advocateId].new++
+        else if (s.status === 'drafted' || s.status === 'ready_to_send') counts[s.advocateId].drafted++
+        else if (s.status === 'sent') counts[s.advocateId].sent++
+        else if (s.status === 'under_review') counts[s.advocateId].under_review++
+        else if (s.status === 'empanelled') counts[s.advocateId].empanelled++
+      }
+    }
+    return counts
+  }, [orgWithStatus, advocates])
 
   const tabs: { key: FilterTab; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -195,172 +207,160 @@ export default function EmpanelmentPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1
-          className="text-2xl font-bold"
-          style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}
-        >
-          Empanelment CRM
-        </h1>
+    <div className="max-w-7xl mx-auto space-y-5">
+      <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>
+        Empanelment CRM
+      </h1>
 
-        {/* Advocate Switcher */}
-        {advocates.length > 1 && (
-          <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1">
-            {advocates.map((adv) => (
-              <button
-                key={adv.id}
-                onClick={() => setSelectedAdvocateId(adv.id)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  selectedAdvocateId === adv.id
-                    ? 'text-white'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-                style={selectedAdvocateId === adv.id ? { background: '#1e3a5f' } : undefined}
-              >
-                {adv.full_name.split(' ')[0]}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {selectedAdvocate && (
-        <p className="text-sm text-gray-500 -mt-4">
-          Tracking applications for <strong>{selectedAdvocate.full_name}</strong> ({selectedAdvocate.email})
-        </p>
+      {/* Stats — one card per advocate */}
+      {advocates.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {advocates.map(adv => {
+            const s = stats[adv.id] || {}
+            const firstName = adv.full_name.split(' ')[0]
+            return (
+              <div key={adv.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: '#1e3a5f' }}>
+                    {firstName[0]}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-800">{adv.full_name}</p>
+                    <p className="text-xs text-gray-400">{adv.email}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-2 text-center">
+                  {[
+                    { label: 'New', value: s.new, icon: FileText, color: '#6b7280' },
+                    { label: 'Drafted', value: s.drafted, icon: FileText, color: '#92400e' },
+                    { label: 'Sent', value: s.sent, icon: Send, color: '#1e40af' },
+                    { label: 'Review', value: s.under_review, icon: Clock, color: '#7c3aed' },
+                    { label: 'Empanelled', value: s.empanelled, icon: CheckCircle2, color: '#065f46' },
+                  ].map(st => {
+                    const Icon = st.icon
+                    return (
+                      <div key={st.label} className="bg-gray-50 rounded-lg py-2">
+                        <Icon className="w-3.5 h-3.5 mx-auto mb-0.5" style={{ color: st.color }} />
+                        <p className="text-lg font-bold" style={{ color: st.color }}>{st.value ?? 0}</p>
+                        <p className="text-[10px] text-gray-400">{st.label}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        {statCards.map((s) => {
-          const Icon = s.icon
-          return (
-            <div
-              key={s.label}
-              className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex gap-1 flex-wrap">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              style={
+                activeTab === t.key
+                  ? { background: '#1e3a5f', color: '#fff' }
+                  : { background: '#f3f4f6', color: '#374151' }
+              }
             >
-              <div className="flex items-center gap-2 mb-1">
-                <Icon className="w-4 h-4" style={{ color: s.color }} />
-                <span className="text-xs text-gray-500 font-medium">{s.label}</span>
-              </div>
-              <p className="text-2xl font-bold" style={{ color: s.color }}>
-                {s.value}
-              </p>
-            </div>
-          )
-        })}
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative sm:ml-auto">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search organizations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 focus:border-[#1e3a5f]"
+          />
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          {/* Tabs */}
-          <div className="flex gap-1 flex-wrap">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setActiveTab(t.key)}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                style={
-                  activeTab === t.key
-                    ? { background: '#1e3a5f', color: '#fff' }
-                    : { background: '#f3f4f6', color: '#374151' }
-                }
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+      {/* Grouped Tables */}
+      {grouped.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400">No organizations found</div>
+      ) : (
+        grouped.map(([segment, orgs]) => (
+          <div key={segment} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {/* Section header */}
+            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2" style={{ background: '#f8f8f5' }}>
+              <Building2 className="w-4 h-4 text-gray-500" />
+              <span className="font-semibold text-gray-700 text-sm">{SEGMENT_LABELS[segment] || segment}</span>
+              <span className="text-xs text-gray-400 ml-1">({orgs.length})</span>
+            </div>
 
-          {/* Search */}
-          <div className="relative sm:ml-auto">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search organizations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 focus:border-[#1e3a5f]"
-            />
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">Name</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">Segment</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">Priority</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">Status</th>
-                <th className="text-left py-3 px-4 text-gray-500 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-12 text-gray-400">
-                    No organizations found
-                  </td>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="text-left py-2 px-4 text-gray-500 font-medium text-xs">Organization</th>
+                  <th className="text-left py-2 px-4 text-gray-500 font-medium text-xs w-20">Priority</th>
+                  {advocates.map(adv => (
+                    <th key={adv.id} className="text-center py-2 px-3 text-xs font-semibold w-28" style={{ color: '#1e3a5f' }}>
+                      {adv.full_name.split(' ')[0]}
+                    </th>
+                  ))}
+                  {advocates.map(adv => (
+                    <th key={`action-${adv.id}`} className="text-center py-2 px-3 text-xs font-medium text-gray-400 w-32">
+                      {adv.full_name.split(' ')[0]} Action
+                    </th>
+                  ))}
                 </tr>
-              ) : (
-                filtered.map((org) => {
-                  const segColor = SEGMENT_COLORS[org.segment] || SEGMENT_COLORS.govt
+              </thead>
+              <tbody>
+                {orgs.map((org) => {
                   const priColor = PRIORITY_COLORS[org.priority] || PRIORITY_COLORS.low
-                  const statusConf = STATUS_CONFIG[org.appStatus] || STATUS_CONFIG.new
-                  const isFatherEmpanelled = org.appStatus === 'father_empanelled'
-
+                  const isFatherEmpanelled = (FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.organization_name)
                   return (
                     <tr key={org.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="py-3 px-4 font-medium text-gray-800">{org.organization_name}</td>
-                      <td className="py-3 px-4">
-                        <span
-                          className="inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize"
-                          style={{ background: segColor.bg, color: segColor.text }}
-                        >
-                          {org.segment === 'psu_central' || org.segment === 'psu_state' ? 'PSU' : org.segment === 'govt_dept' ? 'Govt' : org.segment}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className="inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize"
-                          style={{ background: priColor.bg, color: priColor.text }}
-                        >
+                      <td className="py-2.5 px-4 font-medium text-gray-800">{org.organization_name}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize"
+                          style={{ background: priColor.bg, color: priColor.text }}>
                           {org.priority}
                         </span>
                       </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className="inline-block px-2.5 py-1 rounded-full text-xs font-medium"
-                          style={{ background: statusConf.bg, color: statusConf.text }}
-                        >
-                          {statusConf.label}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {isFatherEmpanelled ? (
-                          <span className="text-xs text-gray-400">Already empanelled</span>
-                        ) : (
-                          <Link
-                            href={`/diary/empanelment/draft/${org.id}`}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90"
-                            style={{ background: '#1e3a5f' }}
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            {org.appStatus === 'new' ? 'Draft Application' : 'View Application'}
-                          </Link>
-                        )}
-                      </td>
+                      {org.statuses.map(s => {
+                        const conf = STATUS_CONFIG[s.status] || STATUS_CONFIG.new
+                        return (
+                          <td key={s.advocateId} className="py-2.5 px-3 text-center">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium"
+                              style={{ background: conf.bg, color: conf.text }}>
+                              {conf.label}
+                            </span>
+                          </td>
+                        )
+                      })}
+                      {org.statuses.map(s => (
+                        <td key={`action-${s.advocateId}`} className="py-2.5 px-3 text-center">
+                          {isFatherEmpanelled ? (
+                            <span className="text-xs text-gray-400">—</span>
+                          ) : (
+                            <Link
+                              href={`/diary/empanelment/draft/${org.id}?advocate=${s.advocateId}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90"
+                              style={{ background: s.status === 'new' ? '#6b7280' : '#1e3a5f' }}
+                            >
+                              <FileText className="w-3 h-3" />
+                              {s.status === 'new' ? 'Draft' : 'View'}
+                            </Link>
+                          )}
+                        </td>
+                      ))}
                     </tr>
                   )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))
+      )}
     </div>
   )
 }
