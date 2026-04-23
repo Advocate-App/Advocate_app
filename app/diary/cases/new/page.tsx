@@ -473,7 +473,6 @@ export default function NewCasePage() {
 
       const plaintiff = form.party_plaintiff.trim()
       const defendant = form.party_defendant.trim()
-      const fullTitle = `${plaintiff} vs ${defendant}`
 
       const row = {
         advocate_id: advocateId,
@@ -485,7 +484,6 @@ export default function NewCasePage() {
         case_type: form.case_type || null,
         party_plaintiff: plaintiff,
         party_defendant: defendant,
-        full_title: fullTitle,
         status: 'active',
         client_name: form.client_name.trim() || null,
         client_side: form.client_side || null,
