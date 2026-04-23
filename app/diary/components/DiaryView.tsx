@@ -994,7 +994,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     )}
                     {searchQuery.length >= 2 && !searching && searchResults.length === 0 && <p className="mt-2 text-sm text-gray-400">No cases found.</p>}
                     <div className="mt-4 pt-4 border-t border-gray-100">
-                      <a href="/diary/cases/new" className="text-sm font-medium hover:underline" style={{ color: '#1e3a5f' }}>Case not found? Create new case →</a>
+                      <Link href="/diary/cases/new" className="text-sm font-medium hover:underline" style={{ color: '#1e3a5f' }}>Case not found? Create new case →</Link>
                     </div>
                   </>)}
                 </div>

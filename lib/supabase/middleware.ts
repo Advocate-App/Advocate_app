@@ -30,8 +30,8 @@ export async function updateSession(request: NextRequest) {
   )
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    data: { session },
+  } = await supabase.auth.getSession()
 
   const { pathname } = request.nextUrl
 
@@ -43,13 +43,13 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/api/') ||
     pathname === '/favicon.ico'
 
-  if (!user && !isPublicRoute) {
+  if (!session && !isPublicRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  if (user && pathname === '/login') {
+  if (session && pathname === '/login') {
     const url = request.nextUrl.clone()
     url.pathname = '/diary'
     return NextResponse.redirect(url)
