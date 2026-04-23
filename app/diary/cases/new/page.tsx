@@ -426,33 +426,15 @@ export default function NewCasePage() {
     try {
       const supabase = createClient()
 
-      // Get current user
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError || !user) {
+      // Get session token to pass to API
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
         setSaveError('Not logged in. Please refresh and log in again.')
         setSaving(false)
         return
       }
 
-      // Get advocate_id
-      let advocateId: string | null = null
-      const { data: advByUser, error: advErr1 } = await supabase
-        .from('advocates').select('id').eq('user_id', user.id).limit(1)
-      if (advByUser && advByUser.length > 0) {
-        advocateId = advByUser[0].id
-      } else {
-        const { data: advAny, error: advErr2 } = await supabase
-          .from('advocates').select('id').limit(1)
-        if (advAny && advAny.length > 0) {
-          advocateId = advAny[0].id
-        } else {
-          setSaveError(`Advocate profile not found (err1: ${advErr1?.message || 'none'}, err2: ${advErr2?.message || 'none'}). Go to Profile and complete your setup.`)
-          setSaving(false)
-          return
-        }
-      }
-
-      // Build the row
+      // Build court info
       let courtName: string
       let courtCode: string | null = null
 
@@ -471,19 +453,15 @@ export default function NewCasePage() {
         courtCode = form.hc_bench
       }
 
-      const plaintiff = form.party_plaintiff.trim()
-      const defendant = form.party_defendant.trim()
-
-      const row = {
-        advocate_id: advocateId,
+      const body = {
         court_level: form.court_level,
         court_code: courtCode,
         court_name: courtName,
         case_number: form.case_number.trim(),
         case_year: form.case_year,
         case_type: form.case_type || null,
-        party_plaintiff: plaintiff,
-        party_defendant: defendant,
+        party_plaintiff: form.party_plaintiff.trim(),
+        party_defendant: form.party_defendant.trim(),
         status: 'active',
         client_name: form.client_name.trim() || null,
         client_side: form.client_side || null,
@@ -491,54 +469,28 @@ export default function NewCasePage() {
         opposite_advocate: form.opposite_advocate.trim() || null,
         filed_date: form.filed_date || null,
         case_stage: form.case_stage || null,
+        next_hearing_date: form.next_hearing_date || null,
         ecourts_cnr: form.ecourts_cnr.trim() || null,
         notes: form.notes.trim() || null,
       }
 
-      const { data: insertedRows, error: insertError } = await supabase
-        .from('cases')
-        .insert(row)
-        .select('id')
-
-      if (insertError) {
-        setSaveError(insertError.message)
-        setSaving(false)
-        return
-      }
-      const inserted = insertedRows?.[0] || null
-      if (!inserted) {
-        setSaveError('Case was not saved. Please try again.')
-        setSaving(false)
-        return
-      }
-
-      const todayStr = new Date().toISOString().split('T')[0]
-
-      // 1. Create a "Case Commenced" hearing for TODAY so it shows in today's diary with NEW tag
-      await supabase.from('hearings').insert({
-        case_id: inserted.id,
-        hearing_date: todayStr,
-        stage_on_date: form.case_stage || null,
-        next_hearing_date: form.next_hearing_date || null,
-        purpose: 'Case Commenced',
-        appearing_advocate_name: 'self',
-        happened: true,
+      const res = await fetch('/api/cases', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(body),
       })
 
-      // 2. Create the actual next hearing so it shows in diary on that future date
-      if (form.next_hearing_date && form.next_hearing_date !== todayStr) {
-        await supabase.from('hearings').insert({
-          case_id: inserted.id,
-          hearing_date: form.next_hearing_date,
-          previous_hearing_date: todayStr,
-          stage_on_date: form.case_stage || null,
-          purpose: null,
-          appearing_advocate_name: 'self',
-          happened: false,
-        })
+      const json = await res.json()
+      if (!res.ok) {
+        setSaveError(json.error || 'Failed to save case')
+        setSaving(false)
+        return
       }
 
-      router.push(`/diary/search`)
+      router.push('/diary/search')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Something went wrong'
       setSaveError(message)
