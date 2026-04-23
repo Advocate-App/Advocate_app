@@ -408,7 +408,7 @@ export default function NewCasePage() {
       if (!form.hc_bench) e.hc_bench = 'Bench selection is required'
     }
 
-    if (!form.next_hearing_date) e.next_hearing_date = 'Next hearing date is required'
+    // next_hearing_date is optional — case can exist without a future hearing
 
     setErrors(e)
     return Object.keys(e).length === 0
@@ -429,26 +429,27 @@ export default function NewCasePage() {
       // Get current user
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError || !user) {
-        setSaveError('You must be logged in to add a case.')
+        setSaveError('Not logged in. Please refresh and log in again.')
         setSaving(false)
         return
       }
 
-      // Get advocate_id — try by user_id first, then any accessible record
+      // Get advocate_id
       let advocateId: string | null = null
-      const { data: advByUser } = await supabase
+      const { data: advByUser, error: advErr1 } = await supabase
         .from('advocates').select('id').eq('user_id', user.id).limit(1)
       if (advByUser && advByUser.length > 0) {
         advocateId = advByUser[0].id
       } else {
-        const { data: advAny } = await supabase
+        const { data: advAny, error: advErr2 } = await supabase
           .from('advocates').select('id').limit(1)
-        if (advAny && advAny.length > 0) advocateId = advAny[0].id
-      }
-      if (!advocateId) {
-        setSaveError('Advocate profile not found. Please go to Profile and complete your setup first.')
-        setSaving(false)
-        return
+        if (advAny && advAny.length > 0) {
+          advocateId = advAny[0].id
+        } else {
+          setSaveError(`Advocate profile not found (err1: ${advErr1?.message || 'none'}, err2: ${advErr2?.message || 'none'}). Go to Profile and complete your setup.`)
+          setSaving(false)
+          return
+        }
       }
 
       // Build the row
@@ -539,7 +540,7 @@ export default function NewCasePage() {
         })
       }
 
-      router.push(`/diary/cases/${inserted.id}`)
+      router.push(`/diary/search`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Something went wrong'
       setSaveError(message)
