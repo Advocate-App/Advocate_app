@@ -307,6 +307,7 @@ export default function EditCasePage() {
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
 
       if (advError || !advocate) {
@@ -487,6 +488,7 @@ export default function EditCasePage() {
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
 
       if (advError || !advocate) {

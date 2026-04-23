@@ -15,11 +15,12 @@ import {
   X,
   LogOut,
   LayoutGrid,
+  FolderOpen,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
-  { href: '/diary/cases', label: 'All Cases', icon: Briefcase },
+  { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
   { href: '/diary/search', label: 'Search', icon: Search },
   { href: '/diary/copying', label: 'Copying', icon: Copy },
   { href: '/diary/empanelment', label: 'Empanelment', icon: Send },
@@ -29,10 +30,10 @@ const navItems = [
 const SSO_KEY = '94c1a5172f3a7c1c7e766d1970db46fa41d3dbeb32cdcab7'
 
 const myApps = [
-  { name: 'Advocate Hub', baseUrl: 'https://advocate-diary-hub.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/diary', color: '#1e3a5f', icon: '&#9878;', current: true },
-  { name: 'Udaipur Sports Club', baseUrl: 'https://usc-platform-beta.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/dashboard', color: '#f97316', icon: '&#9917;', current: false },
+  { name: 'Advocate Hub', baseUrl: 'https://advocate-diary-hub-orpin.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/diary', color: '#1e3a5f', icon: '&#9878;', current: true },
+  { name: 'Udaipur Sports Club', baseUrl: 'https://advocate-diary-hub-orpin.vercel.app', loginPath: '/api/sso-usc', defaultPath: '/dashboard', color: '#f97316', icon: '&#9917;', current: false },
   { name: 'Metro ERP', baseUrl: 'https://metro-erp.vercel.app', loginPath: '/api/auth/auto-login', defaultPath: '/dashboard', color: '#059669', icon: '&#9879;', current: false },
-  { name: 'Warehouse Hub', baseUrl: 'https://udaipur-warehouse-hub.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/admin', color: '#7c3aed', icon: '&#9889;', current: false },
+  { name: 'Warehouse Hub', baseUrl: 'https://udaipur-warehouse-hub-sandy.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/admin', color: '#7c3aed', icon: '&#9889;', current: false },
 ]
 
 function getAppUrl(app: typeof myApps[0]): string {

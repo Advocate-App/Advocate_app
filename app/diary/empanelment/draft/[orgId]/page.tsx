@@ -18,22 +18,21 @@ import Link from 'next/link'
 
 interface Organization {
   id: string
-  name: string
+  organization_name: string
   segment: string
   priority: string
-  contact_role: string | null
+  target_contact_role: string | null
   empanelment_process: string | null
-  email: string | null
+  contact_email: string | null
 }
 
 interface ApplicationRecord {
   id: string
   organization_id: string
-  subject: string
-  body: string
+  draft_subject: string
+  draft_body: string
   status: string
-  send_method: string | null
-  sent_date: string | null
+  application_method: string | null
   created_at: string
   updated_at: string
 }
@@ -80,8 +79,8 @@ export default function DraftApplicationPage() {
 
     if (appData) {
       setApplication(appData)
-      setSubject(appData.subject || '')
-      setBody(appData.body || '')
+      setSubject(appData.draft_subject || '')
+      setBody(appData.draft_body || '')
       // Load status history
       const { data: history } = await supabase
         .from('application_status_history')
@@ -143,8 +142,8 @@ export default function DraftApplicationPage() {
       const { error } = await supabase
         .from('applications')
         .update({
-          subject,
-          body,
+          draft_subject: subject,
+          draft_body: body,
           status: 'drafted',
           updated_at: new Date().toISOString(),
         })
@@ -167,8 +166,8 @@ export default function DraftApplicationPage() {
         .from('applications')
         .insert({
           organization_id: orgId,
-          subject,
-          body,
+          draft_subject: subject,
+          draft_body: body,
           status: 'drafted',
         })
         .select()
@@ -222,8 +221,7 @@ export default function DraftApplicationPage() {
       .from('applications')
       .update({
         status: 'sent',
-        send_method: sendMethod,
-        sent_date: sentDate,
+        application_method: sendMethod,
         updated_at: new Date().toISOString(),
       })
       .eq('id', application.id)
@@ -294,22 +292,22 @@ export default function DraftApplicationPage() {
               className="text-xl font-bold"
               style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}
             >
-              {org.name}
+              {org.organization_name}
             </h1>
             <div className="flex flex-wrap gap-2 text-sm text-gray-500">
               <span className="capitalize">{org.segment}</span>
-              {org.contact_role && (
+              {org.target_contact_role && (
                 <>
                   <span className="text-gray-300">|</span>
-                  <span>Contact: {org.contact_role}</span>
+                  <span>Contact: {org.target_contact_role}</span>
                 </>
               )}
-              {org.email && (
+              {org.contact_email && (
                 <>
                   <span className="text-gray-300">|</span>
                   <span className="flex items-center gap-1">
                     <Mail className="w-3.5 h-3.5" />
-                    {org.email}
+                    {org.contact_email}
                   </span>
                 </>
               )}

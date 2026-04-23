@@ -1,19 +1,17 @@
 name: Empanelment Automation
 
 on:
-  schedule:
-    # Auto-draft: daily at 6 AM IST (0:30 UTC)
-    - cron: '30 0 * * *'
-    # Auto-send: weekdays at 10 AM IST (4:30 UTC) — max 5 emails
-    - cron: '30 4 * * 1-5'
-    # Auto follow-up: Mondays at 11 AM IST (5:30 UTC)
-    - cron: '30 5 * * 1'
-    # Check replies: every 4 hours
-    - cron: '0 */4 * * *'
+  # Disabled GitHub Actions schedule — using cron-job.org instead (more reliable)
+  # To re-enable, uncomment the schedule block below
+  # schedule:
+  #   - cron: '30 0 * * *'
+  #   - cron: '30 4 * * 1-5'
+  #   - cron: '30 5 * * 1'
+  #   - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       action:
-        description: 'Which action to run'
+        description: 'Which action to run manually'
         required: true
         type: choice
         options:
@@ -21,17 +19,21 @@ on:
           - auto-send
           - auto-followup
           - check-replies
+          - health
+
+env:
+  APP_URL: https://advocate-diary-hub-orpin.vercel.app
 
 jobs:
   auto-draft:
-    if: github.event.schedule == '30 0 * * *' || github.event.inputs.action == 'auto-draft'
+    if: github.event.inputs.action == 'auto-draft'
     runs-on: ubuntu-latest
     steps:
       - name: Generate drafts for new applications
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/auto-draft")
+            "${{ env.APP_URL }}/api/cron/auto-draft")
           http_code=$(echo "$response" | tail -1)
           body=$(echo "$response" | head -n -1)
           echo "Status: $http_code"
@@ -39,14 +41,14 @@ jobs:
           if [ "$http_code" != "200" ]; then exit 1; fi
 
   auto-send:
-    if: github.event.schedule == '30 4 * * 1-5' || github.event.inputs.action == 'auto-send'
+    if: github.event.inputs.action == 'auto-send'
     runs-on: ubuntu-latest
     steps:
       - name: Send max 5 ready applications
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/auto-send")
+            "${{ env.APP_URL }}/api/cron/auto-send")
           http_code=$(echo "$response" | tail -1)
           body=$(echo "$response" | head -n -1)
           echo "Status: $http_code"
@@ -54,14 +56,14 @@ jobs:
           if [ "$http_code" != "200" ]; then exit 1; fi
 
   auto-followup:
-    if: github.event.schedule == '30 5 * * 1' || github.event.inputs.action == 'auto-followup'
+    if: github.event.inputs.action == 'auto-followup'
     runs-on: ubuntu-latest
     steps:
-      - name: Send follow-ups (Day 30 and Day 60)
+      - name: Send follow-ups
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/auto-followup")
+            "${{ env.APP_URL }}/api/cron/auto-followup")
           http_code=$(echo "$response" | tail -1)
           body=$(echo "$response" | head -n -1)
           echo "Status: $http_code"
@@ -69,16 +71,25 @@ jobs:
           if [ "$http_code" != "200" ]; then exit 1; fi
 
   check-replies:
-    if: github.event.schedule == '0 */4 * * *' || github.event.inputs.action == 'check-replies'
+    if: github.event.inputs.action == 'check-replies'
     runs-on: ubuntu-latest
     steps:
       - name: Check Gmail for replies
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/check-replies")
+            "${{ env.APP_URL }}/api/cron/check-replies")
           http_code=$(echo "$response" | tail -1)
           body=$(echo "$response" | head -n -1)
           echo "Status: $http_code"
           echo "Response: $body"
           if [ "$http_code" != "200" ]; then exit 1; fi
+
+  health:
+    if: github.event.inputs.action == 'health'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all env vars are configured
+        run: |
+          response=$(curl -s "${{ env.APP_URL }}/api/cron/health")
+          echo "Health check: $response"

@@ -56,6 +56,7 @@ export async function GET(request: Request) {
         )
       `)
       .eq('status', 'ready_to_send')
+      .not('target_organizations.contact_email', 'is', null)
       .limit(MAX_EMAILS_PER_RUN)
 
     if (appsError) {

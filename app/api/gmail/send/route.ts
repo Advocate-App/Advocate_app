@@ -5,33 +5,38 @@ function getCredentials(account: 'ratnesh' | 'avi') {
     return {
       clientId: process.env.GOOGLE_CLIENT_ID_AVI || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET_AVI || '',
-      refreshToken: process.env.GOOGLE_REFRESH_TOKEN_AVI || '',
+      refreshToken: process.env.GOOGLE_AVI_REFRESH_TOKEN || '',
     }
   }
   return {
     clientId: process.env.GOOGLE_CLIENT_ID_RATNESH || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET_RATNESH || '',
-    refreshToken: process.env.GOOGLE_REFRESH_TOKEN_RATNESH || '',
+    refreshToken: process.env.GOOGLE_RATNESH_REFRESH_TOKEN || '',
   }
+}
+
+function encodeSubject(subject: string): string {
+  // RFC 2047 encoding for non-ASCII characters in email headers
+  const encoded = Buffer.from(subject, 'utf-8').toString('base64')
+  return `=?UTF-8?B?${encoded}?=`
 }
 
 function buildMimeMessage(to: string, subject: string, body: string): string {
   const mimeLines = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
     '',
-    body,
+    Buffer.from(body, 'utf-8').toString('base64'),
   ]
   const raw = mimeLines.join('\r\n')
-  // Base64url encode
-  const encoded = Buffer.from(raw)
+  return Buffer.from(raw)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '')
-  return encoded
 }
 
 export async function POST(request: Request) {

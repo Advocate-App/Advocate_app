@@ -91,6 +91,37 @@ export function formatCaseNumber(num: string, year: number | null): string {
   return `${num}/${year}`
 }
 
+// Short display label for slip/table
+export function getCourtShortLabel(code: string): string {
+  const map: Record<string, string> = {
+    MACT_UDR: 'MACT-1', MACT2_UDR: 'MACT-2',
+    DCR_UDR: 'D.C.', SESS_UDR: 'Sess.', COMM_UDR: 'Comm.',
+    CONS_UDR: 'Cons.', FAM_UDR: 'Fam.', LA_UDR: 'L.A.',
+    NCL_UDR: 'NCLT', DRT_JPR: 'DRT',
+    jodhpur: 'HC-Jod', jaipur: 'HC-Jpr',
+    DCR_DGP: 'Dpr-DC', CONS_DGP: 'Dpr-CF', DCR_SGW: 'Dpr-Sgw',
+    DCR_BNW: 'Bsw-DC', CONS_BNW: 'Bsw-CF',
+    DCR_RSM: 'Raj-DC', CONS_RSM: 'Raj-CF',
+    DCR_NTH: 'Nat-DC',
+  }
+  return map[code] || code
+}
+
+// Sort priority: MACT-1 → MACT-2 → Udaipur courts → Dungarpur → Banswara → Rajsamand → Nathdwara → rest
+export function getCourtSortPriority(code: string): number {
+  const order: Record<string, number> = {
+    MACT_UDR: 1, MACT2_UDR: 2,
+    DCR_UDR: 3, SESS_UDR: 4, COMM_UDR: 5, CONS_UDR: 6,
+    FAM_UDR: 7, LA_UDR: 8, NCL_UDR: 9,
+    jodhpur: 10, jaipur: 11, DRT_JPR: 12,
+    DCR_DGP: 20, CONS_DGP: 21, DCR_SGW: 22,
+    DCR_BNW: 30, CONS_BNW: 31,
+    DCR_RSM: 40, CONS_RSM: 41,
+    DCR_NTH: 50,
+  }
+  return order[code] ?? 99
+}
+
 export function getCourtColor(code: string): string {
   if (code.startsWith('MACT')) return '#dbeafe'
   if (code.startsWith('DCR') || code.startsWith('SESS')) return '#f3f4f6'

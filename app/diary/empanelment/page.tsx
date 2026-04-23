@@ -15,18 +15,18 @@ import {
 } from 'lucide-react'
 import { FATHER_EMPANELLED_COMPANIES } from '@/lib/constants/empanelment'
 
-type Segment = 'insurance' | 'bank' | 'nbfc' | 'psu' | 'govt'
+type Segment = 'insurance' | 'bank' | 'nbfc' | 'psu_central' | 'psu_state' | 'govt_dept'
 type Priority = 'high' | 'medium' | 'low'
 type AppStatus = 'new' | 'drafted' | 'ready_to_send' | 'sent' | 'under_review' | 'empanelled' | 'father_empanelled'
 
 interface Organization {
   id: string
-  name: string
+  organization_name: string
   segment: Segment
   priority: Priority
-  contact_role: string | null
+  target_contact_role: string | null
   empanelment_process: string | null
-  email: string | null
+  contact_email: string | null
   created_at: string
 }
 
@@ -37,14 +37,15 @@ interface Application {
   status: string
 }
 
-type FilterTab = 'all' | Segment
+type FilterTab = 'all' | Segment | 'psu' | 'high_court' | 'district_court'
 
-const SEGMENT_COLORS: Record<Segment, { bg: string; text: string }> = {
+const SEGMENT_COLORS: Record<string, { bg: string; text: string }> = {
   insurance: { bg: '#dbeafe', text: '#1e40af' },
   bank: { bg: '#d1fae5', text: '#065f46' },
   nbfc: { bg: '#ede9fe', text: '#5b21b6' },
-  psu: { bg: '#fef3c7', text: '#92400e' },
-  govt: { bg: '#f3f4f6', text: '#374151' },
+  psu_central: { bg: '#fef3c7', text: '#92400e' },
+  psu_state: { bg: '#fef3c7', text: '#92400e' },
+  govt_dept: { bg: '#f3f4f6', text: '#374151' },
 }
 
 const PRIORITY_COLORS: Record<Priority, { bg: string; text: string }> = {
@@ -96,7 +97,7 @@ export default function EmpanelmentPage() {
       }
 
       const [orgsRes, appsRes] = await Promise.all([
-        supabase.from('target_organizations').select('*').order('priority', { ascending: true }).order('name'),
+        supabase.from('target_organizations').select('*').order('priority', { ascending: true }).order('organization_name'),
         supabase.from('applications').select('id, organization_id, status, advocate_id').order('created_at', { ascending: false }),
       ])
       if (orgsRes.data) setOrganizations(orgsRes.data)
@@ -107,7 +108,7 @@ export default function EmpanelmentPage() {
   }, [])
 
   function getStatus(org: Organization): AppStatus {
-    if ((FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.name)) return 'father_empanelled'
+    if ((FATHER_EMPANELLED_COMPANIES as readonly string[]).includes(org.organization_name)) return 'father_empanelled'
     const app = applications.find((a) => a.organization_id === org.id && a.advocate_id === selectedAdvocateId)
     if (!app) return 'new'
     return app.status as AppStatus
@@ -125,12 +126,20 @@ export default function EmpanelmentPage() {
 
   const filtered = useMemo(() => {
     let list = orgWithStatus
-    if (activeTab !== 'all') {
+    if (activeTab === 'psu') {
+      list = list.filter((o) => o.segment === 'psu_central' || o.segment === 'psu_state')
+    } else if (activeTab === 'high_court') {
+      list = list.filter((o) => o.segment === 'govt_dept' && (o as unknown as { sub_segment: string }).sub_segment === 'High Court')
+    } else if (activeTab === 'district_court') {
+      list = list.filter((o) => o.segment === 'govt_dept' && (o as unknown as { sub_segment: string }).sub_segment === 'District Court')
+    } else if (activeTab === 'govt_dept') {
+      list = list.filter((o) => o.segment === 'govt_dept' && !(o as unknown as { sub_segment: string }).sub_segment?.includes('Court'))
+    } else if (activeTab !== 'all') {
       list = list.filter((o) => o.segment === activeTab)
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      list = list.filter((o) => o.name.toLowerCase().includes(q))
+      list = list.filter((o) => o.organization_name.toLowerCase().includes(q))
     }
     return list
   }, [orgWithStatus, activeTab, searchQuery])
@@ -172,7 +181,9 @@ export default function EmpanelmentPage() {
     { key: 'bank', label: 'Banks' },
     { key: 'nbfc', label: 'NBFCs' },
     { key: 'psu', label: 'PSUs' },
-    { key: 'govt', label: 'Govt' },
+    { key: 'govt_dept', label: 'Govt' },
+    { key: 'high_court', label: 'High Court' },
+    { key: 'district_court', label: 'District Court' },
   ]
 
   if (loading) {
@@ -303,13 +314,13 @@ export default function EmpanelmentPage() {
 
                   return (
                     <tr key={org.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                      <td className="py-3 px-4 font-medium text-gray-800">{org.name}</td>
+                      <td className="py-3 px-4 font-medium text-gray-800">{org.organization_name}</td>
                       <td className="py-3 px-4">
                         <span
                           className="inline-block px-2.5 py-1 rounded-full text-xs font-medium capitalize"
                           style={{ background: segColor.bg, color: segColor.text }}
                         >
-                          {org.segment}
+                          {org.segment === 'psu_central' || org.segment === 'psu_state' ? 'PSU' : org.segment === 'govt_dept' ? 'Govt' : org.segment}
                         </span>
                       </td>
                       <td className="py-3 px-4">

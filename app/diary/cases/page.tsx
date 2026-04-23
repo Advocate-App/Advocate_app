@@ -93,11 +93,11 @@ export default function CasesPage() {
         return
       }
 
-      // Get advocate_id
       const { data: advocate, error: advErr } = await supabase
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
 
       if (advErr || !advocate) {

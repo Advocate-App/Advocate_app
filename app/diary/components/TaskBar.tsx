@@ -14,19 +14,19 @@ interface Task {
   created_at: string
 }
 
-export default function TaskBar({ advocateId }: { advocateId: string }) {
+export default function TaskBar({ advocateId, selectedDate }: { advocateId: string; selectedDate?: string }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [showInput, setShowInput] = useState(false)
   const [newTask, setNewTask] = useState('')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const today = format(new Date(), 'yyyy-MM-dd')
+  const taskDate = selectedDate || format(new Date(), 'yyyy-MM-dd')
 
   useEffect(() => {
     fetchTasks()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [advocateId])
+  }, [advocateId, taskDate])
 
   async function fetchTasks() {
     const supabase = createClient()
@@ -34,7 +34,7 @@ export default function TaskBar({ advocateId }: { advocateId: string }) {
       .from('tasks')
       .select('*')
       .eq('advocate_id', advocateId)
-      .eq('task_date', today)
+      .eq('task_date', taskDate)
       .order('created_at', { ascending: true })
     if (data) setTasks(data as Task[])
   }
@@ -54,7 +54,7 @@ export default function TaskBar({ advocateId }: { advocateId: string }) {
     const supabase = createClient()
     const { data } = await supabase
       .from('tasks')
-      .insert({ advocate_id: advocateId, title: text, done: false, task_date: today })
+      .insert({ advocate_id: advocateId, title: text, done: false, task_date: taskDate })
       .select()
       .single()
     if (data) setTasks(prev => [...prev, data as Task])
@@ -81,36 +81,28 @@ export default function TaskBar({ advocateId }: { advocateId: string }) {
   }, [showInput])
 
   return (
-    <div
-      className="w-full px-3 py-1.5 rounded-lg mb-3 flex flex-wrap items-center gap-2"
-      style={{ background: '#fef9e7', border: '1px solid #f5e6b8' }}
-    >
-      {/* Label */}
-      <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide shrink-0">
-        Tasks
-      </span>
+    <div className="w-full">
+      {/* Task list */}
+      <ul className="space-y-0.5 mb-1">
+        {tasks.map((task, i) => (
+          <li key={task.id} className="flex items-start gap-1.5">
+            <input
+              type="checkbox"
+              checked={task.done}
+              onChange={() => toggleDone(task.id, task.done)}
+              className="mt-0.5 w-3 h-3 rounded accent-amber-500 shrink-0"
+            />
+            <span className={`text-[11px] leading-tight ${task.done ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+              {i + 1}. {task.title}
+            </span>
+          </li>
+        ))}
+        {tasks.length === 0 && (
+          <li className="text-[11px] text-gray-300 italic">No tasks</li>
+        )}
+      </ul>
 
-      {/* Task pills */}
-      {tasks.map(task => (
-        <label
-          key={task.id}
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] cursor-pointer transition-colors ${
-            task.done
-              ? 'bg-amber-100 text-amber-400 line-through'
-              : 'bg-white text-gray-700 border border-gray-200'
-          }`}
-        >
-          <input
-            type="checkbox"
-            checked={task.done}
-            onChange={() => toggleDone(task.id, task.done)}
-            className="w-3 h-3 rounded accent-amber-500"
-          />
-          <span>{task.title}</span>
-        </label>
-      ))}
-
-      {/* Inline add input */}
+      {/* Add input */}
       {showInput ? (
         <input
           ref={inputRef}
@@ -118,23 +110,18 @@ export default function TaskBar({ advocateId }: { advocateId: string }) {
           value={newTask}
           onChange={e => setNewTask(e.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={() => {
-            if (!newTask.trim()) {
-              setShowInput(false)
-              setNewTask('')
-            }
-          }}
+          onBlur={() => { if (!newTask.trim()) { setShowInput(false); setNewTask('') } }}
           disabled={saving}
           placeholder="Type task, press Enter"
-          className="px-2 py-0.5 text-[11px] border border-amber-300 rounded-full bg-white text-gray-800 outline-none focus:ring-1 focus:ring-amber-400 w-40"
+          className="px-2 py-0.5 text-[11px] border border-gray-300 rounded bg-white text-gray-800 outline-none focus:ring-1 focus:ring-blue-400 w-full mt-1"
         />
       ) : (
         <button
           onClick={() => setShowInput(true)}
-          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+          className="inline-flex items-center gap-0.5 text-[11px] text-gray-400 hover:text-gray-600 transition-colors mt-0.5"
         >
           <Plus className="w-3 h-3" />
-          Add
+          Add task
         </button>
       )}
     </div>

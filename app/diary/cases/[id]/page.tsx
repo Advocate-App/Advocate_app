@@ -192,6 +192,7 @@ export default function CaseDetailPage() {
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
       if (!adv) { setNotFound(true); setLoading(false); return }
       setAdvocateId(adv.id)

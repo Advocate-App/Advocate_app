@@ -76,7 +76,8 @@ Email: jainavi.aj@gmail.com`,
 
 export async function GET(request: Request) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization')
+  const { searchParams } = new URL(request.url)
+  const authHeader = request.headers.get('authorization') || (searchParams.get('key') ? `Bearer ${searchParams.get('key')}` : null)
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -100,8 +101,8 @@ export async function GET(request: Request) {
         application_sent_at,
         target_organizations (
           id,
-          name,
-          email
+          organization_name,
+          contact_email
         )
       `)
       .eq('status', 'sent')
@@ -115,36 +116,36 @@ export async function GET(request: Request) {
 
         const org = app.target_organizations as unknown as {
           id: string
-          name: string
-          email: string | null
+          organization_name: string
+          contact_email: string | null
         } | null
 
         if (!org) continue
 
         // Never follow up on father's empanelled companies
-        if (isFatherEmpanelled(org.name)) {
-          skipped.push(`${org.name} — father empanelled, skipping follow-up`)
+        if (isFatherEmpanelled(org.organization_name)) {
+          skipped.push(`${org.organization_name} — father empanelled, skipping follow-up`)
           continue
         }
 
-        if (!org.email) {
-          skipped.push(`${org.name} — no email for follow-up`)
+        if (!org.contact_email) {
+          skipped.push(`${org.organization_name} — no email for follow-up`)
           continue
         }
 
         const sentDate = app.application_sent_at || new Date().toISOString()
-        const email = getFollowup1Email(org.name, sentDate)
+        const email = getFollowup1Email(org.organization_name, sentDate)
 
         const result = await sendGmail(
           'avi',
-          org.email,
+          org.contact_email,
           email.subject,
           email.body,
           'Avi Jain <jainavi.aj@gmail.com>'
         )
 
         if ('error' in result) {
-          errors.push(`Follow-up 1 failed for ${org.name}: ${result.error}`)
+          errors.push(`Follow-up 1 failed for ${org.organization_name}: ${result.error}`)
           continue
         }
 
@@ -164,7 +165,7 @@ export async function GET(request: Request) {
         })
 
         followupsSent++
-        console.log(`Follow-up 1 sent to ${org.name} (${org.email})`)
+        console.log(`Follow-up 1 sent to ${org.organization_name} (${org.contact_email})`)
       }
     }
 
@@ -180,8 +181,8 @@ export async function GET(request: Request) {
           followup1_sent_at,
           target_organizations (
             id,
-            name,
-            email
+            organization_name,
+            contact_email
           )
         `)
         .eq('status', 'followup_1_sent')
@@ -195,35 +196,35 @@ export async function GET(request: Request) {
 
           const org = app.target_organizations as unknown as {
             id: string
-            name: string
-            email: string | null
+            organization_name: string
+            contact_email: string | null
           } | null
 
           if (!org) continue
 
-          if (isFatherEmpanelled(org.name)) {
-            skipped.push(`${org.name} — father empanelled, skipping follow-up 2`)
+          if (isFatherEmpanelled(org.organization_name)) {
+            skipped.push(`${org.organization_name} — father empanelled, skipping follow-up 2`)
             continue
           }
 
-          if (!org.email) {
-            skipped.push(`${org.name} — no email for follow-up 2`)
+          if (!org.contact_email) {
+            skipped.push(`${org.organization_name} — no email for follow-up 2`)
             continue
           }
 
           const sentDate = app.application_sent_at || new Date().toISOString()
-          const email = getFollowup2Email(org.name, sentDate)
+          const email = getFollowup2Email(org.organization_name, sentDate)
 
           const result = await sendGmail(
             'avi',
-            org.email,
+            org.contact_email,
             email.subject,
             email.body,
             'Avi Jain <jainavi.aj@gmail.com>'
           )
 
           if ('error' in result) {
-            errors.push(`Follow-up 2 failed for ${org.name}: ${result.error}`)
+            errors.push(`Follow-up 2 failed for ${org.organization_name}: ${result.error}`)
             continue
           }
 
@@ -243,7 +244,7 @@ export async function GET(request: Request) {
           })
 
           followupsSent++
-          console.log(`Follow-up 2 sent to ${org.name} (${org.email})`)
+          console.log(`Follow-up 2 sent to ${org.organization_name} (${org.contact_email})`)
         }
       }
     }

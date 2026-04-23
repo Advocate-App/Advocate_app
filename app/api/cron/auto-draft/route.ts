@@ -84,9 +84,9 @@ The letter must:
 }
 
 async function generateDraftForOrg(org: {
-  name: string
+  organization_name: string
   segment: string
-  contact_role: string | null
+  target_contact_role: string | null
 }): Promise<{ subject: string; body: string } | null> {
   const groqKey = process.env.GROQ_API_KEY
   if (!groqKey) {
@@ -95,10 +95,10 @@ async function generateDraftForOrg(org: {
   }
 
   const template = getTemplate(org.segment)
-  const contactRole = org.contact_role || 'The Empanelment Committee / Legal Department'
+  const contactRole = org.target_contact_role || 'The Empanelment Committee / Legal Department'
   const territoryLine = `I practice across courts in ${ADVOCATE_INFO.courts}, covering southern Rajasthan.`
 
-  const userPrompt = `Organization: ${org.name}
+  const userPrompt = `Organization: ${org.organization_name}
 Addressed to: ${contactRole}
 Segment: ${org.segment}
 Territory line: ${territoryLine}
@@ -137,7 +137,7 @@ Rules:
 
   if (!groqRes.ok) {
     const errText = await groqRes.text()
-    console.error(`Groq API error for ${org.name}:`, errText)
+    console.error(`Groq API error for ${org.organization_name}:`, errText)
     return null
   }
 
@@ -145,7 +145,7 @@ Rules:
   const generatedBody = groqData.choices?.[0]?.message?.content?.trim() || ''
 
   if (!generatedBody) {
-    console.error(`Empty draft generated for ${org.name}`)
+    console.error(`Empty draft generated for ${org.organization_name}`)
     return null
   }
 
@@ -155,7 +155,8 @@ Rules:
 
 export async function GET(request: Request) {
   // Verify cron secret
-  const authHeader = request.headers.get('authorization')
+  const { searchParams } = new URL(request.url)
+  const authHeader = request.headers.get('authorization') || (searchParams.get('key') ? `Bearer ${searchParams.get('key')}` : null)
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -182,7 +183,7 @@ export async function GET(request: Request) {
     // Get all target organizations
     const { data: allOrgs, error: orgsError } = await supabase
       .from('target_organizations')
-      .select('id, name, segment, contact_role, priority')
+      .select('id, organization_name, segment, target_contact_role, priority')
       .order('priority', { ascending: true })
 
     if (orgsError || !allOrgs) {
@@ -193,7 +194,7 @@ export async function GET(request: Request) {
     }
 
     // Filter out father's empanelled companies
-    const eligibleOrgs = allOrgs.filter((org) => !isFatherEmpanelled(org.name))
+    const eligibleOrgs = allOrgs.filter((org) => !isFatherEmpanelled(org.organization_name))
 
     // Get existing applications for this advocate
     const { data: existingApps } = await supabase
@@ -218,14 +219,14 @@ export async function GET(request: Request) {
             organization_id: org.id,
             advocate_id: advocateId,
             status: 'new',
-            subject: '',
-            body: '',
+            draft_subject: '',
+            draft_body: '',
           })
           .select('id, organization_id, status')
           .single()
 
         if (insertError) {
-          errors.push(`Failed to create application for ${org.name}: ${insertError.message}`)
+          errors.push(`Failed to create application for ${org.organization_name}: ${insertError.message}`)
           continue
         }
 
@@ -240,7 +241,7 @@ export async function GET(request: Request) {
       // Generate draft via Groq
       const draft = await generateDraftForOrg(org)
       if (!draft) {
-        errors.push(`Failed to generate draft for ${org.name}`)
+        errors.push(`Failed to generate draft for ${org.organization_name}`)
         continue
       }
 
@@ -248,15 +249,15 @@ export async function GET(request: Request) {
       const { error: updateError } = await supabase
         .from('applications')
         .update({
-          subject: draft.subject,
-          body: draft.body,
+          draft_subject: draft.subject,
+          draft_body: draft.body,
           status: 'ready_to_send',
           updated_at: new Date().toISOString(),
         })
         .eq('id', app.id)
 
       if (updateError) {
-        errors.push(`Failed to update draft for ${org.name}: ${updateError.message}`)
+        errors.push(`Failed to update draft for ${org.organization_name}: ${updateError.message}`)
         continue
       }
 
