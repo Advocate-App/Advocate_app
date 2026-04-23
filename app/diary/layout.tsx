@@ -7,7 +7,6 @@ import { usePathname } from 'next/navigation'
 import {
   CalendarDays,
   Briefcase,
-  Search,
   Copy,
   Send,
   User,
@@ -21,7 +20,7 @@ import {
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
   { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
-  { href: '/diary/search', label: 'Search', icon: Search },
+  { href: '/diary/search', label: 'All Cases', icon: Briefcase },
   { href: '/diary/copying', label: 'Copying', icon: Copy },
   { href: '/diary/empanelment', label: 'Empanelment', icon: Send },
   { href: '/diary/profile', label: 'Profile', icon: User },
