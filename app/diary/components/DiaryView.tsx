@@ -356,11 +356,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const { data, error } = await supabase
         .from('cases')
         .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, party_plaintiff, party_defendant')
-        .eq('advocate_id', advocateId)
-        .or(`full_title.ilike.%${q}%,case_number.ilike.%${q}%,party_plaintiff.ilike.%${q}%,party_defendant.ilike.%${q}%`)
-        .limit(10)
       if (error) console.error('Case search error:', error)
-      setSearchResults((data as SearchResult[]) || [])
+      const qLow = q.toLowerCase()
+      const filtered = (data || []).filter((c: SearchResult) =>
+        [c.full_title, c.party_plaintiff, c.party_defendant, c.case_number]
+          .some(v => v && v.toLowerCase().includes(qLow))
+      )
+      setSearchResults(filtered.slice(0, 10) as SearchResult[])
       setSearching(false)
     }, 300)
   }
@@ -684,23 +686,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-16">Pre. Date</th>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-left">Court Name</th>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-24">Case No.</th>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-left" colSpan={2}>Party Name</th>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-28">Stage</th>
-                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-20">Next Date</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-24">Court</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-24">Case No.</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 1</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 2</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-28">Stage</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20">Next</th>
                   <th className="border border-gray-300 px-2 py-2 w-20 print:hidden"></th>
-                </tr>
-                <tr style={{ background: '#f0f0eb' }}>
-                  <th className="border border-gray-300 px-2 py-0.5"></th>
-                  <th className="border border-gray-300 px-2 py-0.5"></th>
-                  <th className="border border-gray-300 px-2 py-0.5"></th>
-                  <th className="border border-gray-300 px-2 py-0.5 text-[10px] text-gray-500 font-normal w-[45%]">Party 1</th>
-                  <th className="border border-gray-300 px-2 py-0.5 text-[10px] text-gray-500 font-normal w-[45%]">Party 2</th>
-                  <th className="border border-gray-300 px-2 py-0.5"></th>
-                  <th className="border border-gray-300 px-2 py-0.5"></th>
-                  <th className="border border-gray-300 px-2 py-0.5 print:hidden"></th>
                 </tr>
               </thead>
               <tbody>
@@ -719,9 +712,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         style={{ borderLeft: `4px solid ${borderColor}` }}
                       >
                         {/* Pre Date */}
-                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-[11px] text-gray-600">
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm text-gray-600">
                           {h.purpose === 'Case Commenced' ? (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white bg-emerald-500">NEW</span>
+                            <span className="inline-block px-1.5 py-0.5 rounded text-xs font-bold text-white bg-emerald-500">NEW</span>
                           ) : (
                             formatDD_MM(h.previous_hearing_date)
                           )}
@@ -730,28 +723,28 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name */}
                         <td className="border border-gray-200 px-2 py-2">
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium text-gray-700 whitespace-nowrap"
+                            className="inline-block px-1.5 py-0.5 rounded text-sm font-medium text-gray-700 whitespace-nowrap"
                             style={{ background: courtBg }}
                           >
-                            {courtCode || h.caseData.court_name}
+                            {getCourtShortLabel(courtCode) || h.caseData.court_name}
                           </span>
                         </td>
 
                         {/* Case No. */}
-                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-[11px] text-gray-800 whitespace-nowrap">
-                          <Link href={`/diary/cases/${h.case_id}`} className="hover:underline" style={{ color: '#1e3a5f' }}>
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm text-gray-800 whitespace-nowrap">
+                          <Link href={`/diary/cases/${h.case_id}`} className="font-semibold hover:underline" style={{ color: '#1e3a5f' }}>
                             {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                           </Link>
                         </td>
 
                         {/* Party 1 */}
-                        <td className="border border-gray-200 px-2 py-2 text-[12px] text-gray-800">
-                          {h.caseData.party_plaintiff}
+                        <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
+                          <span className="block truncate" title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</span>
                         </td>
 
                         {/* Party 2 */}
-                        <td className="border border-gray-200 px-2 py-2 text-[12px] text-gray-800">
-                          {h.caseData.party_defendant}
+                        <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
+                          <span className="block truncate" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</span>
                         </td>
 
                         {/* Stage */}
@@ -762,7 +755,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               defaultValue={h.stage_on_date || ''}
                               onChange={(e) => saveStage(h.id, e.target.value)}
                               onBlur={() => setEditingStage(null)}
-                              className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 w-full"
+                              className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
                             >
                               <option value=""></option>
                               {stages.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -770,7 +763,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           ) : (
                             <button
                               onClick={() => setEditingStage(h.id)}
-                              className="text-[11px] px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+                              className="text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
                               title="Click to change stage"
                             >
                               {h.stage_on_date || <span className="text-gray-300">—</span>}
@@ -787,15 +780,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               defaultValue={h.next_hearing_date || ''}
                               onChange={(e) => saveNextDate(h.id, e.target.value)}
                               onBlur={() => setEditingNextDate(null)}
-                              className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 w-full"
+                              className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
                             />
                           ) : (
                             <button
                               onClick={() => setEditingNextDate(h.id)}
-                              className="text-[11px] font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+                              className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
                               title="Click to set next date"
                             >
-                              {formatDD_MM(h.next_hearing_date)}
+                              {formatDD_MM(h.next_hearing_date) || <span className="text-gray-300">—</span>}
                             </button>
                           )}
                         </td>

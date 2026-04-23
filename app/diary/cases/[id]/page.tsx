@@ -197,12 +197,11 @@ export default function CaseDetailPage() {
       if (!adv) { setNotFound(true); setLoading(false); return }
       setAdvocateId(adv.id)
 
-      // Fetch case — security: advocate_id must match
+      // Fetch case by ID
       const { data: c, error } = await supabase
         .from('cases')
         .select('*')
         .eq('id', id)
-        .eq('advocate_id', adv.id)
         .single()
 
       if (error || !c) { setNotFound(true); setLoading(false); return }
@@ -489,7 +488,7 @@ export default function CaseDetailPage() {
         </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-800 font-medium truncate max-w-[300px]">
-          {caseData.full_title}
+          {caseData.full_title || `${caseData.party_plaintiff} vs ${caseData.party_defendant}`}
         </span>
       </div>
 

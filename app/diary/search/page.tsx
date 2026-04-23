@@ -119,26 +119,13 @@ export default function SearchPage() {
       return
     }
 
-    // Get advocate_id for security filtering
-    const { data: advocate } = await supabase
-      .from('advocates')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!advocate) {
-      setLoading(false)
-      return
-    }
-
     const q = searchTerm.toLowerCase()
 
     // ── Search cases ──
-    // Fetch all user's cases and filter client-side for multi-field search
+    // Fetch all accessible cases and filter client-side for multi-field search
     const { data: cases } = await supabase
       .from('cases')
       .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, opposite_advocate, notes, status')
-      .eq('advocate_id', advocate.id)
 
     const matchedCases: CaseResult[] = []
     if (cases) {
