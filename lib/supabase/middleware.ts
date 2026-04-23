@@ -35,21 +35,17 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Public routes
-  const isPublicRoute =
-    pathname === '/login' ||
-    pathname.startsWith('/auth/') ||
-    pathname.startsWith('/_next/') ||
-    pathname.startsWith('/api/') ||
-    pathname === '/favicon.ico'
+  // Only redirect to login from the root or login page — diary pages handle their own auth
+  const isProtectedRootOnly = pathname === '/'
+  const isLoginPage = pathname === '/login'
 
-  if (!session && !isPublicRoute) {
+  if (!session && isProtectedRootOnly) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  if (session && pathname === '/login') {
+  if (session && isLoginPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/diary'
     return NextResponse.redirect(url)
