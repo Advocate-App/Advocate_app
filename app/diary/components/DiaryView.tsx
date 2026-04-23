@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -12,10 +13,17 @@ import {
   isToday,
   isPast,
   startOfDay,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  setMonth,
+  setYear,
+  getDaysInMonth,
 } from 'date-fns'
 import {
   getCourtLabel,
   getCourtColor,
+  getCourtSortPriority,
   eCourtsDeepLink,
   formatCaseNumber,
   DISTRICT_STAGES,
@@ -30,13 +38,20 @@ import {
   Clock,
   ExternalLink,
   Loader2,
-  CalendarDays,
   Search,
   X,
 } from 'lucide-react'
 import TaskBar from './TaskBar'
 
-// ──────────────────────────────── Types ────────────────────────────────
+const HINDI_DAYS: Record<string, string> = {
+  Sunday: 'रविवार',
+  Monday: 'सोमवार',
+  Tuesday: 'मंगलवार',
+  Wednesday: 'बुधवार',
+  Thursday: 'गुरुवार',
+  Friday: 'शुक्रवार',
+  Saturday: 'शनिवार',
+}
 
 interface CaseRecord {
   id: string
@@ -87,24 +102,24 @@ interface SearchResult {
   court_code: string | null
   court_name: string
   court_level: string
+  party_plaintiff?: string
+  party_defendant?: string
 }
 
-// ──────────────────────────────── Helpers ────────────────────────────────
-
-function rowBorderColor(hearing: HearingRow, selectedDate: Date): string {
-  if (hearing.happened) return '#22c55e' // green
+function rowBorderColor(hearing: HearingRow): string {
+  if (hearing.happened) return '#22c55e'
   const hDate = parseISO(hearing.hearing_date)
-  if (isToday(hDate)) return '#f59e0b' // amber
-  if (isPast(startOfDay(hDate))) return '#ef4444' // red
-  return '#d1d5db' // gray - future
+  if (isToday(hDate)) return '#f59e0b'
+  if (isPast(startOfDay(hDate))) return '#ef4444'
+  return '#d1d5db'
 }
 
 function formatDD_MM(dateStr: string | null): string {
-  if (!dateStr) return '--'
+  if (!dateStr) return ''
   try {
     return format(parseISO(dateStr), 'dd/MM')
   } catch {
-    return '--'
+    return ''
   }
 }
 
@@ -112,20 +127,36 @@ function toYMD(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
-// ──────────────────────────────── Main Component ────────────────────────────────
+function slipShortName(name: string): string {
+  const n = name.trim()
+  const bracketMatch = n.match(/^(.+?)\s*\((.+)\)\s*$/)
+  if (bracketMatch) {
+    const first = bracketMatch[1].trim().split(' ')[0]
+    const company = bracketMatch[2].trim()
+    return `${first} (${company.split(' ')[0]})`
+  }
+  const companyWords = /\b(ltd|llp|corp|bank|insurance|finance|assurance|company|pvt|inc|authority|corporation|general|sompo|lombard|allianz|tokio|ergo)\b/i
+  if (companyWords.test(n)) return n.split(' ')[0]
+  return n.split(' ')[0]
+}
 
 export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const router = useRouter()
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
+  const [advocateName, setAdvocateName] = useState('')
+  const [slipPrinting, setSlipPrinting] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Inline editing states
+  // Month hearing dates for navigator
+  const [monthHearingDates, setMonthHearingDates] = useState<Set<string>>(new Set())
+
+  // Inline editing
   const [editingStage, setEditingStage] = useState<string | null>(null)
   const [editingNextDate, setEditingNextDate] = useState<string | null>(null)
 
-  // Adjournment form
+  // Adjournment
   const [adjournHearingId, setAdjournHearingId] = useState<string | null>(null)
   const [adjournDate, setAdjournDate] = useState('')
   const [adjournReason, setAdjournReason] = useState('')
@@ -147,9 +178,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   })
   const [addSaving, setAddSaving] = useState(false)
 
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [showYearPicker, setShowYearPicker] = useState(false)
+  const [diaryFilter, setDiaryFilter] = useState('')
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // ──── Load advocate ID on mount ────
+  // Load advocate
   useEffect(() => {
     async function loadAdvocate() {
       const supabase = createClient()
@@ -157,22 +191,38 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       if (!user) return
       const { data } = await supabase
         .from('advocates')
-        .select('id')
+        .select('id, full_name')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
-      if (data) setAdvocateId(data.id)
+      if (data) { setAdvocateId(data.id); setAdvocateName(data.full_name || '') }
     }
     loadAdvocate()
   }, [])
 
-  // ──── Fetch hearings for the selected date ────
+  // Fetch month hearing dates for navigator
+  const fetchMonthDates = useCallback(async () => {
+    if (!advocateId) return
+    const supabase = createClient()
+    const start = toYMD(startOfMonth(selectedDate))
+    const end = toYMD(endOfMonth(selectedDate))
+    const { data } = await supabase
+      .from('hearings')
+      .select('hearing_date, case_id')
+      .gte('hearing_date', start)
+      .lte('hearing_date', end)
+    if (data) {
+      setMonthHearingDates(new Set(data.map((h: { hearing_date: string }) => h.hearing_date)))
+    }
+  }, [advocateId, selectedDate])
+
+  // Fetch hearings for selected date
   const fetchHearings = useCallback(async () => {
     if (!advocateId) return
     setLoading(true)
     const supabase = createClient()
     const dateStr = toYMD(selectedDate)
 
-    // 1. Get all hearings for this date
     const { data: hearingRows, error: hErr } = await supabase
       .from('hearings')
       .select('*')
@@ -185,91 +235,65 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       return
     }
 
-    // 2. Get unique case_ids
     const caseIds = [...new Set(hearingRows.map((h: HearingRow) => h.case_id))]
-
-    // 3. Fetch those cases (RLS ensures we only get our own)
     const { data: cases } = await supabase
       .from('cases')
       .select('id, advocate_id, court_level, court_name, court_code, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, our_role, opposite_advocate, case_stage, status, ecourts_cnr, hc_bench')
       .in('id', caseIds)
 
-    if (!cases) {
-      setHearings([])
-      setLoading(false)
-      return
-    }
+    if (!cases) { setHearings([]); setLoading(false); return }
 
     const caseMap = new Map<string, CaseRecord>()
-    for (const c of cases) {
-      caseMap.set(c.id, c as CaseRecord)
-    }
+    for (const c of cases) caseMap.set(c.id, c as CaseRecord)
 
-    // 4. Combine — only include hearings whose case belongs to this advocate
     const combined: HearingWithCase[] = []
     for (const h of hearingRows as HearingRow[]) {
       const c = caseMap.get(h.case_id)
-      if (c && c.advocate_id === advocateId) {
-        combined.push({ ...h, caseData: c })
-      }
+      if (c && c.advocate_id === advocateId) combined.push({ ...h, caseData: c })
     }
+
+    // Sort: MACT-1 → MACT-2 → Udaipur courts → other cities
+    combined.sort((a, b) =>
+      getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
+    )
 
     setHearings(combined)
     setLoading(false)
   }, [advocateId, selectedDate])
 
   useEffect(() => {
-    if (advocateId) fetchHearings()
-  }, [advocateId, fetchHearings])
+    if (advocateId) { fetchHearings(); fetchMonthDates() }
+  }, [advocateId, fetchHearings, fetchMonthDates])
 
-  // ──── Navigation ────
   function goDay(offset: number) {
     const newDate = offset > 0 ? addDays(selectedDate, offset) : subDays(selectedDate, Math.abs(offset))
     setSelectedDate(newDate)
-    // Update URL if not today
-    if (isToday(newDate)) {
-      router.push('/diary')
-    } else {
-      router.push(`/diary/date/${toYMD(newDate)}`)
-    }
+    if (isToday(newDate)) router.push('/diary')
+    else router.push(`/diary/date/${toYMD(newDate)}`)
   }
 
-  function goToday() {
-    setSelectedDate(new Date())
-    router.push('/diary')
+  function goToDate(d: Date) {
+    setSelectedDate(d)
+    if (isToday(d)) router.push('/diary')
+    else router.push(`/diary/date/${toYMD(d)}`)
   }
 
-  // ──── Inline stage edit ────
   async function saveStage(hearingId: string, newStage: string) {
     const supabase = createClient()
     await supabase.from('hearings').update({ stage_on_date: newStage }).eq('id', hearingId)
-    // Also update the case's case_stage
     const hearing = hearings.find(h => h.id === hearingId)
-    if (hearing) {
-      await supabase.from('cases').update({ case_stage: newStage }).eq('id', hearing.case_id)
-    }
+    if (hearing) await supabase.from('cases').update({ case_stage: newStage }).eq('id', hearing.case_id)
     setEditingStage(null)
     fetchHearings()
   }
 
-  // ──── Inline next date edit — also creates a new hearing on that date ────
   async function saveNextDate(hearingId: string, newDate: string) {
     const supabase = createClient()
     const hearing = hearings.find(h => h.id === hearingId)
-
-    // Update current hearing's next_hearing_date
     await supabase.from('hearings').update({ next_hearing_date: newDate || null }).eq('id', hearingId)
-
-    // Auto-create a new hearing row on the next date so it shows in diary
     if (newDate && hearing) {
-      // Check if a hearing already exists for this case on that date
       const { data: existing } = await supabase
-        .from('hearings')
-        .select('id')
-        .eq('case_id', hearing.case_id)
-        .eq('hearing_date', newDate)
-        .limit(1)
-
+        .from('hearings').select('id').eq('case_id', hearing.case_id).eq('hearing_date', newDate).limit(1)
       if (!existing || existing.length === 0) {
         await supabase.from('hearings').insert({
           case_id: hearing.case_id,
@@ -281,34 +305,27 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         })
       }
     }
-
     setEditingNextDate(null)
     fetchHearings()
   }
 
-  // ──── Mark attended ────
   async function markAttended(hearingId: string) {
     const supabase = createClient()
     await supabase.from('hearings').update({ happened: true }).eq('id', hearingId)
     fetchHearings()
   }
 
-  // ──── Mark adjourned ────
   async function submitAdjourn(hearingId: string) {
     if (!adjournDate) return
     setAdjournSaving(true)
     const supabase = createClient()
     const hearing = hearings.find(h => h.id === hearingId)
     if (!hearing) { setAdjournSaving(false); return }
-
-    // 1. Mark current hearing as happened + set adjournment reason
     await supabase.from('hearings').update({
       happened: true,
       adjournment_reason: adjournReason || 'Adjourned',
       next_hearing_date: adjournDate,
     }).eq('id', hearingId)
-
-    // 2. Create NEW hearing on the adjourned date
     await supabase.from('hearings').insert({
       case_id: hearing.case_id,
       hearing_date: adjournDate,
@@ -318,7 +335,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       appearing_advocate_name: hearing.appearing_advocate_name || 'self',
       happened: false,
     })
-
     setAdjournHearingId(null)
     setAdjournDate('')
     setAdjournReason('')
@@ -326,37 +342,31 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     fetchHearings()
   }
 
-  // ──── Case search (debounced) ────
   function handleSearch(q: string) {
     setSearchQuery(q)
     setSelectedCase(null)
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
-    if (q.trim().length < 2) {
-      setSearchResults([])
-      return
-    }
+    if (q.trim().length < 2 || !advocateId) { setSearchResults([]); return }
     searchTimeout.current = setTimeout(async () => {
       setSearching(true)
       const supabase = createClient()
-      // Search by party names or case number
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('cases')
-        .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level')
-        .eq('advocate_id', advocateId!)
-        .or(`full_title.ilike.%${q}%,case_number.ilike.%${q}%`)
+        .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, party_plaintiff, party_defendant')
+        .eq('advocate_id', advocateId)
+        .or(`full_title.ilike.%${q}%,case_number.ilike.%${q}%,party_plaintiff.ilike.%${q}%,party_defendant.ilike.%${q}%`)
         .limit(10)
+      if (error) console.error('Case search error:', error)
       setSearchResults((data as SearchResult[]) || [])
       setSearching(false)
     }, 300)
   }
 
-  // ──── Add hearing ────
   async function addHearing(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedCase || !newHearingForm.hearing_date) return
     setAddSaving(true)
     const supabase = createClient()
-
     await supabase.from('hearings').insert({
       case_id: selectedCase.id,
       hearing_date: newHearingForm.hearing_date,
@@ -367,16 +377,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       outcome_notes: newHearingForm.notes || null,
       happened: false,
     })
-
-    // Auto-create next hearing if next date is provided
     if (newHearingForm.next_hearing_date) {
       const { data: existing } = await supabase
-        .from('hearings')
-        .select('id')
-        .eq('case_id', selectedCase.id)
-        .eq('hearing_date', newHearingForm.next_hearing_date)
-        .limit(1)
-
+        .from('hearings').select('id').eq('case_id', selectedCase.id).eq('hearing_date', newHearingForm.next_hearing_date).limit(1)
       if (!existing || existing.length === 0) {
         await supabase.from('hearings').insert({
           case_id: selectedCase.id,
@@ -388,10 +391,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         })
       }
     }
-
     setAddSaving(false)
     resetAddModal()
     fetchHearings()
+    fetchMonthDates()
   }
 
   function resetAddModal() {
@@ -399,106 +402,232 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchQuery('')
     setSearchResults([])
     setSelectedCase(null)
-    setNewHearingForm({
-      hearing_date: toYMD(selectedDate),
-      stage_on_date: '',
-      next_hearing_date: '',
-      purpose: '',
-      appearing_advocate_name: 'self',
-      notes: '',
-    })
+    setNewHearingForm({ hearing_date: toYMD(selectedDate), stage_on_date: '', next_hearing_date: '', purpose: '', appearing_advocate_name: 'self', notes: '' })
   }
 
   function openAddModal() {
-    setNewHearingForm({
-      hearing_date: toYMD(selectedDate),
-      stage_on_date: '',
-      next_hearing_date: '',
-      purpose: '',
-      appearing_advocate_name: 'self',
-      notes: '',
-    })
+    setNewHearingForm({ hearing_date: toYMD(selectedDate), stage_on_date: '', next_hearing_date: '', purpose: '', appearing_advocate_name: 'self', notes: '' })
     setSearchQuery('')
     setSearchResults([])
     setSelectedCase(null)
     setShowAddModal(true)
   }
 
-  // ──── Print ────
-  function handlePrint() {
-    window.print()
-  }
+  // Filtered hearings for diary search
+  const filteredHearings = diaryFilter.trim()
+    ? hearings.filter(h =>
+        `${h.caseData.party_plaintiff} ${h.caseData.party_defendant}`
+          .toLowerCase()
+          .includes(diaryFilter.toLowerCase())
+      )
+    : hearings
 
-  // ──── Stats ────
-  const totalHearings = hearings.length
-  const attended = hearings.filter(h => h.happened).length
-  const pending = hearings.filter(h => !h.happened && !h.adjournment_reason).length
-  const adjourned = hearings.filter(h => h.adjournment_reason).length
-
-  // ──── Date display ────
-  const dateDisplay = format(selectedDate, 'EEEE, d MMMM yyyy')
+  // Date display parts
+  const monthName = format(selectedDate, 'MMMM').toUpperCase()
+  const dayNum = format(selectedDate, 'd')
+  const dayEnglish = format(selectedDate, 'EEEE')
+  const dayHindi = HINDI_DAYS[dayEnglish] || ''
+  const yearNum = format(selectedDate, 'yyyy')
   const isTodayDate = isToday(selectedDate)
 
-  // ──────────────────────────────── Render ────────────────────────────────
+  // Month calendar days
+  const monthDays = eachDayOfInterval({ start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) })
 
   return (
-    <div className="max-w-6xl">
-      {advocateId && <TaskBar advocateId={advocateId} />}
-      {/* ═══ Header Bar ═══ */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => goDay(-1)}
-            className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-            title="Previous day"
-          >
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
+    <div className="max-w-6xl print:max-w-none">
 
-          <div>
-            <h1
-              className="text-xl sm:text-2xl font-bold text-gray-900"
+      {/* ═══ Spreadsheet-style Header ═══ */}
+      <div className="bg-white border border-gray-300 rounded-xl overflow-hidden mb-4 print:rounded-none print:border-black">
+        <div className="grid grid-cols-[1fr_2fr_auto_2fr] divide-x divide-gray-300 border-b border-gray-300">
+
+          {/* Month */}
+          <div className="relative flex flex-col items-center justify-center py-4 px-3 bg-gray-50">
+            <button
+              onClick={() => { setShowMonthPicker(v => !v); setShowYearPicker(false) }}
+              className="text-2xl font-bold tracking-widest text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
               style={{ fontFamily: 'Georgia, serif' }}
+              title="Click to change month"
             >
-              {dateDisplay}
-            </h1>
+              {monthName}
+            </button>
             {isTodayDate && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+              <span className="mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 uppercase tracking-wide">
                 Today
               </span>
             )}
+            {showMonthPicker && (
+              <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 w-48">
+                {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      const capped = Math.min(selectedDate.getDate(), getDaysInMonth(setMonth(selectedDate, i)))
+                      const d = new Date(selectedDate)
+                      d.setMonth(i)
+                      d.setDate(capped)
+                      setSelectedDate(d)
+                      setShowMonthPicker(false)
+                    }}
+                    className={`text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                      selectedDate.getMonth() === i
+                        ? 'text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                    style={selectedDate.getMonth() === i ? { background: '#1e3a5f' } : undefined}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={() => goDay(1)}
-            className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-            title="Next day"
-          >
-            <ChevronRight className="w-5 h-5 text-gray-600" />
-          </button>
+          {/* Date + Day */}
+          <div className="flex flex-col items-center justify-center py-4 px-3 relative">
+            <div className="text-5xl font-bold text-gray-900 leading-none" style={{ fontFamily: 'Georgia, serif' }}>
+              {dayNum}
+            </div>
+            <div className="mt-1 text-sm text-gray-600">
+              {dayEnglish} <span className="text-gray-800 font-medium">({dayHindi})</span>
+            </div>
+            {/* Nav arrows */}
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col gap-1">
+              <button onClick={() => goDay(-1)} className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors" title="Previous day">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1">
+              <button onClick={() => goDay(1)} className="p-1 rounded hover:bg-gray-100 text-gray-500 transition-colors" title="Next day">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
-          {!isTodayDate && (
+          {/* Year */}
+          <div className="relative flex flex-col items-center justify-center py-4 px-5 bg-gray-50">
             <button
-              onClick={goToday}
-              className="ml-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors text-gray-700"
+              onClick={() => { setShowYearPicker(v => !v); setShowMonthPicker(false) }}
+              className="text-2xl font-bold text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
+              style={{ fontFamily: 'Georgia, serif' }}
+              title="Click to change year"
             >
-              Today
+              {yearNum}
             </button>
-          )}
-        </div>
+            {showYearPicker && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 w-44">
+                {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 3 + i).map(y => (
+                  <button
+                    key={y}
+                    onClick={() => {
+                      const d = setYear(selectedDate, y)
+                      setSelectedDate(d)
+                      setShowYearPicker(false)
+                    }}
+                    className={`text-xs py-1.5 rounded-lg font-medium transition-colors ${
+                      selectedDate.getFullYear() === y
+                        ? 'text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                    style={selectedDate.getFullYear() === y ? { background: '#1e3a5f' } : undefined}
+                  >
+                    {y}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-        <div className="flex items-center gap-2">
+          {/* To-Do list */}
+          <div className="py-2 px-3 min-h-[80px]">
+            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">To-Do list</div>
+            {advocateId && <TaskBar advocateId={advocateId} selectedDate={toYMD(selectedDate)} />}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ Month Calendar Strip ═══ */}
+      <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 overflow-x-auto print:hidden">
+        <div className="flex items-center gap-1 min-w-max">
+          {monthDays.map((day) => {
+            const ymd = toYMD(day)
+            const hasHearings = monthHearingDates.has(ymd)
+            const isSelected = ymd === toYMD(selectedDate)
+            const isT = isToday(day)
+            return (
+              <button
+                key={ymd}
+                onClick={() => goToDate(day)}
+                className={`flex flex-col items-center px-2 py-1 rounded-lg text-xs transition-colors min-w-[32px] ${
+                  isSelected
+                    ? 'text-white font-bold'
+                    : isT
+                    ? 'bg-amber-50 text-amber-700 font-semibold'
+                    : 'hover:bg-gray-100 text-gray-600'
+                }`}
+                style={isSelected ? { background: '#1e3a5f' } : {}}
+                title={hasHearings ? `${format(day, 'd MMM')} — has hearings` : format(day, 'd MMM')}
+              >
+                <span className="text-[9px] opacity-60">{format(day, 'EEE').toUpperCase()}</span>
+                <span>{format(day, 'd')}</span>
+                {hasHearings ? (
+                  <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
+                ) : (
+                  <span className="w-1.5 h-1.5 mt-0.5" />
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ═══ Action Bar ═══ */}
+      <div className="flex items-center justify-between mb-3 print:hidden">
+        <div className="text-sm text-gray-500">
+          {hearings.length > 0 ? (
+            <span>
+              <span className="font-semibold text-gray-800">{hearings.length}</span> hearings &nbsp;·&nbsp;
+              <span className="text-green-600">{hearings.filter(h => h.happened).length} attended</span> &nbsp;·&nbsp;
+              <span className="text-amber-600">{hearings.filter(h => !h.happened).length} pending</span>
+            </span>
+          ) : null}
+        </div>
+        <div className="flex gap-2">
+          <button
+            disabled={slipPrinting}
+            onClick={() => {
+              if (slipPrinting) return
+              setSlipPrinting(true)
+              document.body.classList.add('print-slip-mode')
+              setTimeout(() => {
+                window.print()
+                const reset = () => {
+                  document.body.classList.remove('print-slip-mode')
+                  setSlipPrinting(false)
+                }
+                window.addEventListener('afterprint', reset, { once: true })
+                setTimeout(reset, 60000)
+              }, 150)
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+              slipPrinting
+                ? 'border-blue-300 bg-blue-50 text-blue-600 cursor-wait'
+                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Printer className="w-4 h-4" />
+            {slipPrinting ? 'Preparing...' : 'Print Slip'}
+          </button>
           <button
             onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
             style={{ background: '#1e3a5f' }}
           >
             <Plus className="w-4 h-4" />
             Add Hearing
           </button>
           <button
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             <Printer className="w-4 h-4" />
             Print
@@ -506,25 +635,39 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         </div>
       </div>
 
+      {/* ═══ Diary Filter Bar ═══ */}
+      {hearings.length > 0 && !loading && (
+        <div className="relative mb-3 print:hidden">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={diaryFilter}
+            onChange={(e) => setDiaryFilter(e.target.value)}
+            placeholder="Filter by party name…"
+            className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+          />
+          {diaryFilter && (
+            <button
+              onClick={() => setDiaryFilter('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ═══ Main Table ═══ */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
         </div>
       ) : hearings.length === 0 ? (
-        /* ── Empty State ── */
-        <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
-          <CalendarDays className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h2
-            className="text-xl font-bold text-gray-700 mb-2"
-            style={{ fontFamily: 'Georgia, serif' }}
-          >
-            No hearings scheduled for {format(selectedDate, 'd MMMM yyyy')}
-          </h2>
-          <p className="text-gray-500 mb-6">Add a hearing to get started.</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center print:hidden">
+          <p className="text-gray-400 text-sm mb-4">No hearings scheduled for {format(selectedDate, 'd MMMM yyyy')}</p>
           <button
             onClick={openAddModal}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white font-medium"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white font-medium text-sm"
             style={{ background: '#1e3a5f' }}
           >
             <Plus className="w-4 h-4" />
@@ -533,383 +676,274 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         </div>
       ) : (
         <>
-          {/* ── Desktop Table ── */}
-          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
+          {/* Desktop Table */}
+          <div className="hidden md:block print:block bg-white rounded-xl border border-gray-200 overflow-hidden print:rounded-none print:border-black">
+            <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="border-b border-gray-300" style={{ background: '#f0f0eb' }}>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Pre</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Court</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Case No.</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Party Name</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Stage</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider">Next Date</th>
-                  <th className="px-2 py-2 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wider"></th>
+                <tr style={{ background: '#e8e8e0' }}>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-16">Pre. Date</th>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-left">Court Name</th>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-24">Case No.</th>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-left" colSpan={2}>Party Name</th>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-28">Stage</th>
+                  <th className="border border-gray-300 px-2 py-2 text-[11px] font-bold text-gray-700 text-center w-20">Next Date</th>
+                  <th className="border border-gray-300 px-2 py-2 w-20 print:hidden"></th>
+                </tr>
+                <tr style={{ background: '#f0f0eb' }}>
+                  <th className="border border-gray-300 px-2 py-0.5"></th>
+                  <th className="border border-gray-300 px-2 py-0.5"></th>
+                  <th className="border border-gray-300 px-2 py-0.5"></th>
+                  <th className="border border-gray-300 px-2 py-0.5 text-[10px] text-gray-500 font-normal w-[45%]">Party 1</th>
+                  <th className="border border-gray-300 px-2 py-0.5 text-[10px] text-gray-500 font-normal w-[45%]">Party 2</th>
+                  <th className="border border-gray-300 px-2 py-0.5"></th>
+                  <th className="border border-gray-300 px-2 py-0.5"></th>
+                  <th className="border border-gray-300 px-2 py-0.5 print:hidden"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {hearings.map((h) => {
-                  const borderColor = rowBorderColor(h, selectedDate)
+              <tbody>
+                {filteredHearings.map((h) => {
+                  const borderColor = rowBorderColor(h)
                   const courtCode = h.caseData.court_code || ''
                   const courtBg = getCourtColor(courtCode)
                   const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
                   const ecLink = eCourtsDeepLink(h.caseData.ecourts_cnr)
 
                   return (
-                    <tr
-                      key={h.id}
-                      className="hover:bg-gray-50/50 transition-colors"
-                      style={{ borderLeft: `4px solid ${borderColor}` }}
-                    >
-                      {/* Pre Date */}
-                      <td className="px-2 py-1.5 text-gray-600 font-mono text-[11px] whitespace-nowrap">
-                        {h.purpose === 'Case Commenced' ? (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">
-                            NEW
-                          </span>
-                        ) : (
-                          formatDD_MM(h.previous_hearing_date)
-                        )}
-                      </td>
-
-                      {/* Court */}
-                      <td className="px-2 py-1.5">
-                        <span
-                          className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium text-gray-700 whitespace-nowrap"
-                          style={{ background: courtBg }}
-                        >
-                          {courtCode || h.caseData.court_name}
-                        </span>
-                      </td>
-
-                      {/* Case No. */}
-                      <td className="px-2 py-1.5 font-mono text-[11px] text-gray-800 whitespace-nowrap">
-                        {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
-                      </td>
-
-                      {/* Party Name — clickable, opens case detail */}
-                      <td className="px-2 py-1.5 max-w-[220px]">
-                        <Link
-                          href={`/diary/cases/${h.case_id}`}
-                          className="text-[12px] font-medium hover:underline transition-colors block truncate"
-                          style={{ color: '#1e3a5f' }}
-                          title={`${h.caseData.party_plaintiff} vs ${h.caseData.party_defendant}`}
-                        >
-                          {h.caseData.party_plaintiff} <span className="text-gray-400">→</span> {h.caseData.party_defendant}
-                        </Link>
-                      </td>
-
-                      {/* Stage — Inline Editable */}
-                      <td className="px-2 py-1.5">
-                        {editingStage === h.id ? (
-                          <select
-                            autoFocus
-                            defaultValue={h.stage_on_date || ''}
-                            onChange={(e) => saveStage(h.id, e.target.value)}
-                            onBlur={() => setEditingStage(null)}
-                            className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 max-w-[120px]"
-                          >
-                            <option value="">--</option>
-                            {stages.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <button
-                            onClick={() => setEditingStage(h.id)}
-                            className="text-[11px] px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 text-left"
-                            title="Click to change stage"
-                          >
-                            {h.stage_on_date || <span className="text-gray-300">--</span>}
-                          </button>
-                        )}
-                      </td>
-
-                      {/* Next Date — Inline Editable */}
-                      <td className="px-2 py-1.5">
-                        {editingNextDate === h.id ? (
-                          <input
-                            type="date"
-                            autoFocus
-                            defaultValue={h.next_hearing_date || ''}
-                            onChange={(e) => saveNextDate(h.id, e.target.value)}
-                            onBlur={() => setEditingNextDate(null)}
-                            className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900"
-                          />
-                        ) : (
-                          <button
-                            onClick={() => setEditingNextDate(h.id)}
-                            className="text-[11px] font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700"
-                            title="Click to set next date"
-                          >
-                            {formatDD_MM(h.next_hearing_date)}
-                          </button>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-1">
-                          {/* Attended */}
-                          {!h.happened ? (
-                            <button
-                              onClick={() => markAttended(h.id)}
-                              className="p-1.5 rounded-md text-green-600 hover:bg-green-50 transition-colors"
-                              title="Mark attended"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
+                    <>
+                      <tr
+                        key={h.id}
+                        className="hover:bg-gray-50/50 transition-colors"
+                        style={{ borderLeft: `4px solid ${borderColor}` }}
+                      >
+                        {/* Pre Date */}
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-[11px] text-gray-600">
+                          {h.purpose === 'Case Commenced' ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white bg-emerald-500">NEW</span>
                           ) : (
-                            <span className="p-1.5 text-green-500" title="Attended">
-                              <Check className="w-4 h-4" />
-                            </span>
+                            formatDD_MM(h.previous_hearing_date)
                           )}
+                        </td>
 
-                          {/* Adjourn */}
-                          {!h.happened && (
-                            <button
-                              onClick={() => {
-                                setAdjournHearingId(h.id)
-                                setAdjournDate('')
-                                setAdjournReason('')
-                              }}
-                              className="p-1.5 rounded-md text-amber-600 hover:bg-amber-50 transition-colors"
-                              title="Adjourn"
+                        {/* Court Name */}
+                        <td className="border border-gray-200 px-2 py-2">
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium text-gray-700 whitespace-nowrap"
+                            style={{ background: courtBg }}
+                          >
+                            {courtCode || h.caseData.court_name}
+                          </span>
+                        </td>
+
+                        {/* Case No. */}
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-[11px] text-gray-800 whitespace-nowrap">
+                          <Link href={`/diary/cases/${h.case_id}`} className="hover:underline" style={{ color: '#1e3a5f' }}>
+                            {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
+                          </Link>
+                        </td>
+
+                        {/* Party 1 */}
+                        <td className="border border-gray-200 px-2 py-2 text-[12px] text-gray-800">
+                          {h.caseData.party_plaintiff}
+                        </td>
+
+                        {/* Party 2 */}
+                        <td className="border border-gray-200 px-2 py-2 text-[12px] text-gray-800">
+                          {h.caseData.party_defendant}
+                        </td>
+
+                        {/* Stage */}
+                        <td className="border border-gray-200 px-2 py-2 text-center">
+                          {editingStage === h.id ? (
+                            <select
+                              autoFocus
+                              defaultValue={h.stage_on_date || ''}
+                              onChange={(e) => saveStage(h.id, e.target.value)}
+                              onBlur={() => setEditingStage(null)}
+                              className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 w-full"
                             >
-                              <Clock className="w-4 h-4" />
+                              <option value=""></option>
+                              {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          ) : (
+                            <button
+                              onClick={() => setEditingStage(h.id)}
+                              className="text-[11px] px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+                              title="Click to change stage"
+                            >
+                              {h.stage_on_date || <span className="text-gray-300">—</span>}
                             </button>
                           )}
+                        </td>
 
-                          {/* eCourts link */}
-                          {ecLink && (
-                            <a
-                              href={ecLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1.5 rounded-md text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="View on eCourts"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                            </a>
-                          )}
-                        </div>
-
-                        {/* Adjournment inline form */}
-                        {adjournHearingId === h.id && (
-                          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <p className="text-xs font-medium text-amber-800 mb-2">Adjourn to:</p>
+                        {/* Next Date */}
+                        <td className="border border-gray-200 px-2 py-2 text-center">
+                          {editingNextDate === h.id ? (
                             <input
                               type="date"
-                              value={adjournDate}
-                              onChange={(e) => setAdjournDate(e.target.value)}
-                              className="w-full px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2"
+                              autoFocus
+                              defaultValue={h.next_hearing_date || ''}
+                              onChange={(e) => saveNextDate(h.id, e.target.value)}
+                              onBlur={() => setEditingNextDate(null)}
+                              className="px-1 py-0.5 border border-gray-300 rounded text-[11px] bg-white text-gray-900 w-full"
                             />
-                            <input
-                              type="text"
-                              placeholder="Reason (optional)"
-                              value={adjournReason}
-                              onChange={(e) => setAdjournReason(e.target.value)}
-                              className="w-full px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2"
-                            />
-                            <div className="flex gap-1.5">
+                          ) : (
+                            <button
+                              onClick={() => setEditingNextDate(h.id)}
+                              className="text-[11px] font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+                              title="Click to set next date"
+                            >
+                              {formatDD_MM(h.next_hearing_date)}
+                            </button>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="border border-gray-200 px-1 py-2 print:hidden">
+                          <div className="flex items-center gap-0.5 justify-center">
+                            {!h.happened ? (
+                              <button onClick={() => markAttended(h.id)} className="p-1.5 rounded text-green-600 hover:bg-green-50 transition-colors" title="Mark attended">
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <span className="p-1.5 text-green-400"><Check className="w-3.5 h-3.5" /></span>
+                            )}
+                            {!h.happened && (
+                              <button
+                                onClick={() => { setAdjournHearingId(h.id); setAdjournDate(''); setAdjournReason('') }}
+                                className="p-1.5 rounded text-amber-600 hover:bg-amber-50 transition-colors" title="Adjourn"
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {ecLink && (
+                              <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Adjournment row */}
+                      {adjournHearingId === h.id && (
+                        <tr key={`adj-${h.id}`}>
+                          <td colSpan={8} className="border border-gray-200 px-3 py-3 print:hidden">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-xs font-medium text-amber-700">Adjourn to:</span>
+                              <input
+                                type="date"
+                                value={adjournDate}
+                                onChange={(e) => setAdjournDate(e.target.value)}
+                                className="px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Reason (optional)"
+                                value={adjournReason}
+                                onChange={(e) => setAdjournReason(e.target.value)}
+                                className="px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900 w-48"
+                              />
                               <button
                                 onClick={() => submitAdjourn(h.id)}
                                 disabled={!adjournDate || adjournSaving}
-                                className="px-3 py-1 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                                className="px-3 py-1 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                               >
-                                {adjournSaving ? 'Saving...' : 'Adjourn'}
+                                {adjournSaving ? 'Saving...' : 'Confirm'}
                               </button>
-                              <button
-                                onClick={() => setAdjournHearingId(null)}
-                                className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
-                              >
+                              <button onClick={() => setAdjournHearingId(null)} className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50">
                                 Cancel
                               </button>
                             </div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })}
               </tbody>
             </table>
           </div>
 
-          {/* ── Mobile Cards ── */}
-          <div className="md:hidden space-y-3">
-            {hearings.map((h) => {
-              const borderColor = rowBorderColor(h, selectedDate)
+          {/* Mobile Cards */}
+          <div className="md:hidden space-y-3 print:hidden">
+            {filteredHearings.map((h) => {
+              const borderColor = rowBorderColor(h)
               const courtCode = h.caseData.court_code || ''
               const courtBg = getCourtColor(courtCode)
               const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
               const ecLink = eCourtsDeepLink(h.caseData.ecourts_cnr)
 
               return (
-                <div
-                  key={h.id}
-                  className="bg-white rounded-xl border border-gray-200 p-4"
-                  style={{ borderLeft: `4px solid ${borderColor}` }}
-                >
-                  {/* Top: Court + Case No */}
+                <div key={h.id} className="bg-white rounded-xl border border-gray-200 p-4" style={{ borderLeft: `4px solid ${borderColor}` }}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span
-                      className="inline-block px-2 py-0.5 rounded text-xs font-medium text-gray-700"
-                      style={{ background: courtBg }}
-                    >
+                    <span className="inline-block px-2.5 py-0.5 rounded text-sm font-medium text-gray-700" style={{ background: courtBg }}>
                       {getCourtLabel(courtCode || h.caseData.court_name)}
                     </span>
-                    <span className="text-xs font-mono text-gray-500">
+                    <span className="text-sm font-mono text-gray-500">
                       {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                     </span>
                   </div>
-
-                  {/* Party Name */}
-                  <Link
-                    href={`/diary/cases/${h.case_id}`}
-                    className="block text-sm font-medium mb-1 hover:underline"
-                    style={{ color: '#1e3a5f' }}
-                  >
-                    {h.caseData.party_plaintiff}
-                    <span className="text-gray-400 font-normal"> vs </span>
-                    {h.caseData.party_defendant}
+                  <Link href={`/diary/cases/${h.case_id}`} className="block text-base font-semibold mb-2 hover:underline" style={{ color: '#1e3a5f' }}>
+                    {h.caseData.party_plaintiff} <span className="text-gray-400 font-normal">vs</span> {h.caseData.party_defendant}
                   </Link>
-                  {h.appearing_advocate_name && (
-                    <p className="text-xs text-gray-400 italic mb-2">
-                      {h.appearing_advocate_name === 'self' ? 'Self' : h.appearing_advocate_name}
-                    </p>
-                  )}
-
-                  {/* Info row */}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
-                    <span>
-                      {h.purpose === 'Case Commenced' ? (
-                        <span className="inline-block px-1.5 py-0.5 rounded text-xs font-bold text-white bg-emerald-500">NEW</span>
-                      ) : (
-                        <>Pre: {formatDD_MM(h.previous_hearing_date)}</>
-                      )}
-                    </span>
-                    <span>
-                      Stage:{' '}
-                      {editingStage === h.id ? (
-                        <select
-                          autoFocus
-                          defaultValue={h.stage_on_date || ''}
-                          onChange={(e) => saveStage(h.id, e.target.value)}
-                          onBlur={() => setEditingStage(null)}
-                          className="px-1 py-0.5 border border-gray-300 rounded text-xs bg-white text-gray-900"
-                        >
-                          <option value="">--</option>
-                          {stages.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <button
-                          onClick={() => setEditingStage(h.id)}
-                          className="underline decoration-dotted"
-                        >
-                          {h.stage_on_date || '--'}
-                        </button>
-                      )}
-                    </span>
-                    <span>
-                      Next:{' '}
-                      {editingNextDate === h.id ? (
-                        <input
-                          type="date"
-                          autoFocus
-                          defaultValue={h.next_hearing_date || ''}
-                          onChange={(e) => saveNextDate(h.id, e.target.value)}
-                          onBlur={() => setEditingNextDate(null)}
-                          className="px-1 py-0.5 border border-gray-300 rounded text-xs bg-white text-gray-900"
-                        />
-                      ) : (
-                        <button
-                          onClick={() => setEditingNextDate(h.id)}
-                          className="underline decoration-dotted"
-                        >
-                          {formatDD_MM(h.next_hearing_date)}
-                        </button>
-                      )}
-                    </span>
+                  <div className="text-sm text-gray-500 mb-2">
+                    Pre: {h.purpose === 'Case Commenced' ? <span className="text-emerald-600 font-bold">NEW</span> : (formatDD_MM(h.previous_hearing_date) || '—')}
                   </div>
-
-                  {/* Actions */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Stage</label>
+                      <select
+                        value={h.stage_on_date || ''}
+                        onChange={(e) => saveStage(h.id, e.target.value)}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 appearance-none"
+                        style={{ minHeight: '44px' }}
+                      >
+                        <option value="">— Select —</option>
+                        {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
+                      <input
+                        type="date"
+                        value={h.next_hearing_date || ''}
+                        onChange={(e) => saveNextDate(h.id, e.target.value)}
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                        style={{ minHeight: '44px' }}
+                      />
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     {!h.happened ? (
-                      <button
-                        onClick={() => markAttended(h.id)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition-colors"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        Attended
+                      <button onClick={() => markAttended(h.id)} className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100">
+                        <Check className="w-4 h-4" /> Attended
                       </button>
                     ) : (
-                      <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-green-700 bg-green-100">
-                        <Check className="w-3.5 h-3.5" />
-                        Done
+                      <span className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-green-700 bg-green-100">
+                        <Check className="w-4 h-4" /> Done
                       </span>
                     )}
-
                     {!h.happened && (
-                      <button
-                        onClick={() => {
-                          setAdjournHearingId(h.id)
-                          setAdjournDate('')
-                          setAdjournReason('')
-                        }}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
-                      >
-                        <Clock className="w-3.5 h-3.5" />
-                        Adjourn
+                      <button onClick={() => { setAdjournHearingId(h.id); setAdjournDate(''); setAdjournReason('') }} className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100">
+                        <Clock className="w-4 h-4" /> Adjourn
                       </button>
                     )}
-
                     {ecLink && (
-                      <a
-                        href={ecLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        eCourts
+                      <a href={ecLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">
+                        <ExternalLink className="w-4 h-4" /> eCourts
                       </a>
                     )}
                   </div>
-
-                  {/* Adjournment inline form (mobile) */}
                   {adjournHearingId === h.id && (
                     <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                       <p className="text-xs font-medium text-amber-800 mb-2">Adjourn to:</p>
-                      <input
-                        type="date"
-                        value={adjournDate}
-                        onChange={(e) => setAdjournDate(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Reason (optional)"
-                        value={adjournReason}
-                        onChange={(e) => setAdjournReason(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2"
-                      />
+                      <input type="date" value={adjournDate} onChange={(e) => setAdjournDate(e.target.value)} className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2" />
+                      <input type="text" placeholder="Reason (optional)" value={adjournReason} onChange={(e) => setAdjournReason(e.target.value)} className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2" />
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => submitAdjourn(h.id)}
-                          disabled={!adjournDate || adjournSaving}
-                          className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                        >
+                        <button onClick={() => submitAdjourn(h.id)} disabled={!adjournDate || adjournSaving} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-amber-600 disabled:opacity-50">
                           {adjournSaving ? 'Saving...' : 'Adjourn'}
                         </button>
-                        <button
-                          onClick={() => setAdjournHearingId(null)}
-                          className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
+                        <button onClick={() => setAdjournHearingId(null)} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200">Cancel</button>
                       </div>
                     </div>
                   )}
@@ -917,242 +951,94 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               )
             })}
           </div>
-
-          {/* ═══ Stats Strip ═══ */}
-          <div
-            className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 rounded-xl text-sm"
-            style={{ background: '#f3f3ee' }}
-          >
-            <span className="font-medium text-gray-700">
-              Today: <span className="font-bold" style={{ color: '#1e3a5f' }}>{totalHearings}</span> hearings
-            </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-green-700">
-              Attended: <span className="font-bold">{attended}</span>
-            </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-amber-700">
-              Pending: <span className="font-bold">{pending}</span>
-            </span>
-            <span className="text-gray-400">|</span>
-            <span className="text-red-700">
-              Adjourned: <span className="font-bold">{adjourned}</span>
-            </span>
-          </div>
         </>
       )}
 
       {/* ═══ Add Hearing Modal ═══ */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Overlay */}
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={resetAddModal}
-          />
-
-          {/* Modal */}
+          <div className="absolute inset-0 bg-black/50" onClick={resetAddModal} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2
-                className="text-lg font-bold text-gray-800"
-                style={{ fontFamily: 'Georgia, serif' }}
-              >
-                Add Hearing
-              </h2>
-              <button
-                onClick={resetAddModal}
-                className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <h2 className="text-lg font-bold text-gray-800" style={{ fontFamily: 'Georgia, serif' }}>Add Hearing</h2>
+              <button onClick={resetAddModal} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="px-6 py-5 space-y-5">
-              {/* Step 1: Search for case */}
               {!selectedCase ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Search for a case
-                  </label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      autoFocus
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value)}
-                      placeholder="Type party name or case number..."
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                    />
-                  </div>
-
-                  {/* Search Results */}
-                  {searching && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Searching...
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Search for a case</label>
+                  {!advocateId ? (
+                    <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading profile...</p>
+                  ) : (<>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input type="text" autoFocus value={searchQuery} onChange={(e) => handleSearch(e.target.value)} placeholder="Type party name or case number..." className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white" />
                     </div>
-                  )}
-
-                  {searchResults.length > 0 && (
-                    <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                      {searchResults.map((c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => setSelectedCase(c)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
-                        >
-                          <p className="text-sm font-medium text-gray-800">{c.full_title}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {c.case_type ? `${c.case_type} ` : ''}
-                            {formatCaseNumber(c.case_number, c.case_year)}
-                            {' — '}
-                            {getCourtLabel(c.court_code || c.court_name)}
-                          </p>
-                        </button>
-                      ))}
+                    {searching && <div className="mt-2 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" /> Searching...</div>}
+                    {searchResults.length > 0 && (
+                      <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                        {searchResults.map((c) => (
+                          <button key={c.id} onClick={() => setSelectedCase(c)} className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
+                            <p className="text-sm font-medium text-gray-800">{c.full_title}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{c.case_type ? `${c.case_type} ` : ''}{formatCaseNumber(c.case_number, c.case_year)} — {getCourtLabel(c.court_code || c.court_name)}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {searchQuery.length >= 2 && !searching && searchResults.length === 0 && <p className="mt-2 text-sm text-gray-400">No cases found.</p>}
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <Link href="/diary/cases/new" className="text-sm font-medium hover:underline" style={{ color: '#1e3a5f' }}>Case not found? Create new case</Link>
                     </div>
-                  )}
-
-                  {searchQuery.length >= 2 && !searching && searchResults.length === 0 && (
-                    <p className="mt-2 text-sm text-gray-400">No cases found.</p>
-                  )}
-
-                  {/* Create new case link */}
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <Link
-                      href="/diary/cases/new"
-                      className="text-sm font-medium hover:underline"
-                      style={{ color: '#1e3a5f' }}
-                    >
-                      Case not found? Create new case
-                    </Link>
-                  </div>
+                  </>)}
                 </div>
               ) : (
-                /* Step 2: Hearing form */
                 <div>
-                  {/* Selected case summary */}
                   <div className="p-3 rounded-lg mb-4" style={{ background: '#f0f4f8' }}>
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-gray-800">{selectedCase.full_title}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {selectedCase.case_type ? `${selectedCase.case_type} ` : ''}
-                          {formatCaseNumber(selectedCase.case_number, selectedCase.case_year)}
-                          {' — '}
-                          {getCourtLabel(selectedCase.court_code || selectedCase.court_name)}
-                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">{selectedCase.case_type ? `${selectedCase.case_type} ` : ''}{formatCaseNumber(selectedCase.case_number, selectedCase.case_year)} — {getCourtLabel(selectedCase.court_code || selectedCase.court_name)}</p>
                       </div>
-                      <button
-                        onClick={() => setSelectedCase(null)}
-                        className="text-xs text-gray-500 hover:text-gray-700 underline"
-                      >
-                        Change
-                      </button>
+                      <button onClick={() => setSelectedCase(null)} className="text-xs text-gray-500 hover:text-gray-700 underline">Change</button>
                     </div>
                   </div>
-
                   <form onSubmit={addHearing} className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Hearing Date *
-                        </label>
-                        <input
-                          type="date"
-                          required
-                          value={newHearingForm.hearing_date}
-                          onChange={(e) => setNewHearingForm({ ...newHearingForm, hearing_date: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Hearing Date *</label>
+                        <input type="date" required value={newHearingForm.hearing_date} onChange={(e) => setNewHearingForm({ ...newHearingForm, hearing_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Stage on Date
-                        </label>
-                        <select
-                          value={newHearingForm.stage_on_date}
-                          onChange={(e) => setNewHearingForm({ ...newHearingForm, stage_on_date: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                        >
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Stage</label>
+                        <select value={newHearingForm.stage_on_date} onChange={(e) => setNewHearingForm({ ...newHearingForm, stage_on_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white">
                           <option value="">-- Select --</option>
-                          {(selectedCase.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES).map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
+                          {(selectedCase.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES).map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Next Hearing Date
-                        </label>
-                        <input
-                          type="date"
-                          value={newHearingForm.next_hearing_date}
-                          onChange={(e) => setNewHearingForm({ ...newHearingForm, next_hearing_date: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Next Hearing Date</label>
+                        <input type="date" value={newHearingForm.next_hearing_date} onChange={(e) => setNewHearingForm({ ...newHearingForm, next_hearing_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Purpose
-                        </label>
-                        <input
-                          type="text"
-                          value={newHearingForm.purpose}
-                          onChange={(e) => setNewHearingForm({ ...newHearingForm, purpose: e.target.value })}
-                          placeholder="e.g., Arguments"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                        />
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Purpose</label>
+                        <input type="text" value={newHearingForm.purpose} onChange={(e) => setNewHearingForm({ ...newHearingForm, purpose: e.target.value })} placeholder="e.g., Arguments" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                       </div>
                     </div>
-
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Appearing Advocate
-                      </label>
-                      <input
-                        type="text"
-                        value={newHearingForm.appearing_advocate_name}
-                        onChange={(e) => setNewHearingForm({ ...newHearingForm, appearing_advocate_name: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                      />
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Appearing Advocate</label>
+                      <input type="text" value={newHearingForm.appearing_advocate_name} onChange={(e) => setNewHearingForm({ ...newHearingForm, appearing_advocate_name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900" />
                     </div>
-
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Notes
-                      </label>
-                      <textarea
-                        value={newHearingForm.notes}
-                        onChange={(e) => setNewHearingForm({ ...newHearingForm, notes: e.target.value })}
-                        rows={2}
-                        placeholder="Optional notes..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 resize-none"
-                      />
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                      <textarea value={newHearingForm.notes} onChange={(e) => setNewHearingForm({ ...newHearingForm, notes: e.target.value })} rows={2} placeholder="Optional notes..." className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 resize-none" />
                     </div>
-
                     <div className="flex gap-3 pt-2">
-                      <button
-                        type="submit"
-                        disabled={addSaving}
-                        className="flex-1 px-5 py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                        style={{ background: '#1e3a5f' }}
-                      >
+                      <button type="submit" disabled={addSaving} className="flex-1 px-5 py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50" style={{ background: '#1e3a5f' }}>
                         {addSaving ? 'Saving...' : 'Save Hearing'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={resetAddModal}
-                        className="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                      >
-                        Cancel
-                      </button>
+                      <button type="button" onClick={resetAddModal} className="px-5 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
                     </div>
                   </form>
                 </div>
@@ -1160,6 +1046,75 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══ Global print styles injected once ═══ */}
+      <style>{`
+        @page { size: A4 portrait; margin: 8mm; }
+        @media print {
+          body:not(.print-slip-mode) #diary-slip { display: none !important; }
+          body:not(.print-slip-mode) { zoom: 90%; }
+          body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
+          body.print-slip-mode #diary-slip {
+            display: block !important;
+            position: absolute !important;
+            top: 10mm !important;
+            right: 8mm !important;
+            left: auto !important;
+            width: 90mm !important;
+            height: auto !important;
+            overflow: visible !important;
+            font-family: Georgia, 'Times New Roman', serif;
+            font-size: 11px;
+            line-height: 1.5;
+            border: 0.5px solid #999;
+            padding: 5mm 5mm 4mm;
+            box-sizing: border-box;
+            background: white;
+          }
+        }
+      `}</style>
+
+      {/* ═══ Slip rendered as direct body child via portal ═══ */}
+      {typeof window !== 'undefined' && createPortal(
+        <div id="diary-slip" style={{ display: 'none', pointerEvents: 'none', position: 'fixed', top: 0, left: '-9999px', width: 0, height: 0, overflow: 'hidden' }}>
+        {(() => {
+          const dayName = format(selectedDate, 'EEEE')
+          const sorted = [...hearings].sort((a, b) =>
+            getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
+          )
+          return (
+            <>
+              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '2mm', marginBottom: '2mm' }}>
+                <div style={{ fontSize: '9px', letterSpacing: '1px', textTransform: 'uppercase', color: '#555' }}>Court Diary</div>
+                <div style={{ fontSize: '15px', fontWeight: 'bold', margin: '1mm 0 0' }}>{format(selectedDate, 'd MMMM yyyy')}</div>
+                <div style={{ fontSize: '10px', color: '#333' }}>{dayName} · {HINDI_DAYS[dayName] || ''}</div>
+                {advocateName && <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '1mm' }}>Adv. {advocateName}</div>}
+              </div>
+              {sorted.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '4mm 0', fontSize: '10px', color: '#999' }}>No hearings today</div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {sorted.map((h, i) => (
+                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', padding: '1mm 0', borderBottom: i < sorted.length - 1 ? '0.3px dotted #ccc' : 'none' }}>
+                      <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#555', flexShrink: 0 }}>{i + 1}.</span>
+                      <span style={{ fontWeight: 'bold', flexShrink: 0, minWidth: '14mm' }}>{getCourtLabel(h.caseData.court_code || h.caseData.court_name)}</span>
+                      <span style={{ color: '#aaa', flexShrink: 0 }}>–</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '10px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
+                      <span style={{ color: '#aaa', flexShrink: 0 }}>–</span>
+                      <span>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '9px', color: '#888' }}>
+                {sorted.length} matter{sorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
+              </div>
+            </>
+          )
+        })()}
+        </div>,
+        document.body
       )}
     </div>
   )

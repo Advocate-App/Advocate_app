@@ -434,11 +434,12 @@ export default function NewCasePage() {
         return
       }
 
-      // Get advocate_id
+      // Get advocate_id (limit 1 — user may have multiple profiles)
       const { data: advocate, error: advError } = await supabase
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
 
       if (advError || !advocate) {
@@ -466,6 +467,10 @@ export default function NewCasePage() {
         courtCode = form.hc_bench
       }
 
+      const plaintiff = form.party_plaintiff.trim()
+      const defendant = form.party_defendant.trim()
+      const fullTitle = `${plaintiff} vs ${defendant}`
+
       const row = {
         advocate_id: advocate.id,
         court_level: form.court_level,
@@ -474,8 +479,9 @@ export default function NewCasePage() {
         case_number: form.case_number.trim(),
         case_year: form.case_year,
         case_type: form.case_type || null,
-        party_plaintiff: form.party_plaintiff.trim(),
-        party_defendant: form.party_defendant.trim(),
+        party_plaintiff: plaintiff,
+        party_defendant: defendant,
+        full_title: fullTitle,
         client_name: form.client_name.trim() || null,
         client_side: form.client_side || null,
         our_role: form.our_role.trim() || null,
