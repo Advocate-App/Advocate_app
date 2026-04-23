@@ -496,14 +496,19 @@ export default function NewCasePage() {
         notes: form.notes.trim() || null,
       }
 
-      const { data: inserted, error: insertError } = await supabase
+      const { data: insertedRows, error: insertError } = await supabase
         .from('cases')
         .insert(row)
         .select('id')
-        .single()
 
       if (insertError) {
         setSaveError(insertError.message)
+        setSaving(false)
+        return
+      }
+      const inserted = insertedRows?.[0] || null
+      if (!inserted) {
+        setSaveError('Case was not saved. Please try again.')
         setSaving(false)
         return
       }

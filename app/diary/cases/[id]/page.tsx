@@ -188,14 +188,13 @@ export default function CaseDetailPage() {
       if (!user) { setNotFound(true); setLoading(false); return }
 
       // Get advocate_id
-      const { data: adv } = await supabase
+      const { data: advRows } = await supabase
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
         .limit(1)
-        .single()
-      if (!adv) { setNotFound(true); setLoading(false); return }
-      setAdvocateId(adv.id)
+      const adv = advRows?.[0] || null
+      if (adv) setAdvocateId(adv.id)
 
       // Fetch case by ID
       const { data: c, error } = await supabase
@@ -465,7 +464,7 @@ export default function CaseDetailPage() {
             This case does not exist or you do not have access to it.
           </p>
           <Link
-            href="/diary/cases"
+            href="/diary/search"
             className="inline-block px-5 py-2 rounded-lg text-white font-medium"
             style={{ background: '#1e3a5f' }}
           >

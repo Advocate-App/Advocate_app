@@ -93,24 +93,10 @@ export default function CasesPage() {
         return
       }
 
-      const { data: advocate, error: advErr } = await supabase
-        .from('advocates')
-        .select('id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single()
-
-      if (advErr || !advocate) {
-        setError('Advocate profile not found. Please set up your profile first.')
-        setLoading(false)
-        return
-      }
-
-      // Get all cases for this advocate
+      // Get all cases (no advocate_id filter — cases may be stored with different IDs)
       const { data: casesData, error: casesErr } = await supabase
         .from('cases')
         .select('id, court_level, court_code, court_name, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, case_stage, status, ecourts_cnr, hc_bench, created_at')
-        .eq('advocate_id', advocate.id)
         .order('created_at', { ascending: false })
 
       if (casesErr) {
