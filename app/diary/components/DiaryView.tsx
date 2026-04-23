@@ -1055,7 +1055,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         @page { size: A4 portrait; margin: 8mm; }
         @media print {
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) { zoom: 90%; }
+          body:not(.print-slip-mode) { zoom: 115%; }
+          body:not(.print-slip-mode) table th { font-size: 13px !important; padding: 4px 6px !important; }
+          body:not(.print-slip-mode) table td { font-size: 14px !important; padding: 5px 6px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
           body.print-slip-mode #diary-slip {
             display: block !important;
@@ -1099,7 +1101,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {sorted.map((h, i) => (
-                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.4mm 0', borderBottom: i < sorted.length - 1 ? '0.3px dotted #ddd' : 'none' }}>
+                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.4mm 0' }}>
                       <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#666', flexShrink: 0, fontSize: '11px' }}>{i + 1}.</span>
                       <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{getCourtShortLabel(h.caseData.court_code || h.caseData.court_name)}</span>
                       <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
