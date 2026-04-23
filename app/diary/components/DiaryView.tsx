@@ -1056,9 +1056,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         @page { size: A4 portrait; margin: 8mm; }
         @media print {
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) { zoom: 115%; }
-          body:not(.print-slip-mode) table th { font-size: 13px !important; padding: 4px 6px !important; }
-          body:not(.print-slip-mode) table td { font-size: 14px !important; padding: 5px 6px !important; }
+          body:not(.print-slip-mode) table th { font-size: 12px !important; padding: 3px 5px !important; }
+          body:not(.print-slip-mode) table td { font-size: 13px !important; padding: 3px 5px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
           body.print-slip-mode #diary-slip {
             display: block !important;
