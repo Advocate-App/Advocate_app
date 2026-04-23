@@ -131,13 +131,15 @@ function slipShortName(name: string): string {
   const n = name.trim()
   const bracketMatch = n.match(/^(.+?)\s*\((.+)\)\s*$/)
   if (bracketMatch) {
-    const first = bracketMatch[1].trim().split(' ')[0]
-    const company = bracketMatch[2].trim()
-    return `${first} (${company.split(' ')[0]})`
+    const parts = bracketMatch[1].trim().split(/\s+/)
+    const first = parts[0].length <= 2 && parts[1] ? `${parts[0]} ${parts[1]}` : parts[0]
+    const company = bracketMatch[2].trim().split(' ')[0]
+    return `${first} (${company})`
   }
   const companyWords = /\b(ltd|llp|corp|bank|insurance|finance|assurance|company|pvt|inc|authority|corporation|general|sompo|lombard|allianz|tokio|ergo)\b/i
   if (companyWords.test(n)) return n.split(' ')[0]
-  return n.split(' ')[0]
+  const parts = n.split(/\s+/)
+  return parts[0].length <= 2 && parts[1] ? `${parts[0]} ${parts[1]}` : parts[0]
 }
 
 export default function DiaryView({ initialDate }: { initialDate: Date }) {
@@ -1061,14 +1063,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             top: 10mm !important;
             right: 8mm !important;
             left: auto !important;
-            width: 90mm !important;
+            width: 92mm !important;
+            max-height: 210mm !important;
             height: auto !important;
-            overflow: visible !important;
+            overflow: hidden !important;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: 11px;
-            line-height: 1.5;
+            font-size: 12.5px;
+            line-height: 1.35;
             border: 0.5px solid #999;
-            padding: 5mm 5mm 4mm;
+            padding: 4mm 5mm 3mm;
             box-sizing: border-box;
             background: white;
           }
@@ -1085,24 +1088,22 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           )
           return (
             <>
-              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '2mm', marginBottom: '2mm' }}>
-                <div style={{ fontSize: '9px', letterSpacing: '1px', textTransform: 'uppercase', color: '#555' }}>Court Diary</div>
-                <div style={{ fontSize: '15px', fontWeight: 'bold', margin: '1mm 0 0' }}>{format(selectedDate, 'd MMMM yyyy')}</div>
-                <div style={{ fontSize: '10px', color: '#333' }}>{dayName} · {HINDI_DAYS[dayName] || ''}</div>
-                {advocateName && <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic', marginTop: '1mm' }}>Adv. {advocateName}</div>}
+              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '1.5mm' }}>
+                <div style={{ fontSize: '8px', letterSpacing: '1px', textTransform: 'uppercase', color: '#777' }}>Court Diary</div>
+                <div style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5mm 0 0', lineHeight: 1.2 }}>{format(selectedDate, 'd MMMM yyyy')}</div>
+                <div style={{ fontSize: '10px', color: '#444' }}>{dayName} · {HINDI_DAYS[dayName] || ''}</div>
+                {advocateName && <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>Adv. {advocateName}</div>}
               </div>
               {sorted.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '4mm 0', fontSize: '10px', color: '#999' }}>No hearings today</div>
+                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '11px', color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {sorted.map((h, i) => (
-                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', padding: '1mm 0', borderBottom: i < sorted.length - 1 ? '0.3px dotted #ccc' : 'none' }}>
-                      <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#555', flexShrink: 0 }}>{i + 1}.</span>
-                      <span style={{ fontWeight: 'bold', flexShrink: 0, minWidth: '14mm' }}>{getCourtLabel(h.caseData.court_code || h.caseData.court_name)}</span>
-                      <span style={{ color: '#aaa', flexShrink: 0 }}>–</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '10px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
-                      <span style={{ color: '#aaa', flexShrink: 0 }}>–</span>
-                      <span>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
+                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.4mm 0', borderBottom: i < sorted.length - 1 ? '0.3px dotted #ddd' : 'none' }}>
+                      <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#666', flexShrink: 0, fontSize: '11px' }}>{i + 1}.</span>
+                      <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{getCourtShortLabel(h.caseData.court_code || h.caseData.court_name)}</span>
+                      <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
+                      <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
                     </li>
                   ))}
                 </ul>
