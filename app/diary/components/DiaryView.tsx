@@ -149,6 +149,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
   const [slipPrinting, setSlipPrinting] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -185,6 +186,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [showYearPicker, setShowYearPicker] = useState(false)
   const [diaryFilter, setDiaryFilter] = useState('')
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => { setIsMounted(true) }, [])
 
   // Load advocate
   useEffect(() => {
@@ -991,7 +994,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     )}
                     {searchQuery.length >= 2 && !searching && searchResults.length === 0 && <p className="mt-2 text-sm text-gray-400">No cases found.</p>}
                     <div className="mt-4 pt-4 border-t border-gray-100">
-                      <Link href="/diary/cases/new" className="text-sm font-medium hover:underline" style={{ color: '#1e3a5f' }}>Case not found? Create new case</Link>
+                      <a href="/diary/cases/new" className="text-sm font-medium hover:underline" style={{ color: '#1e3a5f' }}>Case not found? Create new case →</a>
                     </div>
                   </>)}
                 </div>
@@ -1083,7 +1086,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       `}</style>
 
       {/* ═══ Slip rendered as direct body child via portal ═══ */}
-      {typeof window !== 'undefined' && createPortal(
+      {isMounted && createPortal(
         <div id="diary-slip" style={{ display: 'none', pointerEvents: 'none', position: 'fixed', top: 0, left: '-9999px', width: 0, height: 0, overflow: 'hidden' }}>
         {(() => {
           const dayName = format(selectedDate, 'EEEE')
