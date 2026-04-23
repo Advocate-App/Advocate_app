@@ -17,6 +17,7 @@ export const DISTRICT_COURTS = [
   { code: 'LA_UDR', name: 'Land Acquisition Udaipur', district: 'Udaipur' },
   { code: 'NCL_UDR', name: 'NCLT / NCL Udaipur', district: 'Udaipur' },
   { code: 'DRT_JPR', name: 'DRT Jaipur', district: 'Jaipur' },
+  { code: 'SCDRC_JPR', name: 'State Consumer Commission Rajasthan', district: 'Jaipur' },
   { code: 'OTHER', name: 'Other — specify', district: null },
 ]
 
@@ -33,7 +34,7 @@ export const DISTRICT_STAGES = [
   'Plaintiff Evidence', 'Defendant Evidence', 'Arguments',
   'Judgment Reserved', 'Judgment', 'Execution',
   '805', 'Arg', 'EMI', 'CPL', 'Sin', 'Eny', 'Ent',
-  'Adjourned', 'For Orders', 'Other',
+  'Adjourned', 'For Orders', 'Other', 'Custom...',
 ]
 
 export const HC_BENCHES = [
@@ -58,7 +59,7 @@ export const HC_STAGES = [
   'Admission', 'Motion', 'Regular Hearing', 'Final Hearing',
   'Arguments', 'Judgment Reserved', 'Judgment',
   'For Orders', 'Notice', 'Service Complete',
-  'Counter Affidavit', 'Rejoinder', 'Other',
+  'Counter Affidavit', 'Rejoinder', 'Other', 'Custom...',
 ]
 
 export const CLIENT_SIDES_DISTRICT = [

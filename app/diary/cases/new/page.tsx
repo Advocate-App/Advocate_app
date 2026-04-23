@@ -299,6 +299,7 @@ export default function NewCasePage() {
   const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [customStage, setCustomStage] = useState('')
 
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -468,7 +469,7 @@ export default function NewCasePage() {
         our_role: form.our_role.trim() || null,
         opposite_advocate: form.opposite_advocate.trim() || null,
         filed_date: form.filed_date || null,
-        case_stage: form.case_stage || null,
+        case_stage: form.case_stage === 'Custom...' ? (customStage.trim() || null) : (form.case_stage || null),
         next_hearing_date: form.next_hearing_date || null,
         ecourts_cnr: form.ecourts_cnr.trim() || null,
         notes: form.notes.trim() || null,
@@ -785,13 +786,25 @@ export default function NewCasePage() {
               onChange={(v) => set('filed_date', v)}
               type="date"
             />
-            <SimpleSelect
-              label="Case Stage"
-              options={stageOptions}
-              value={form.case_stage}
-              onChange={(v) => set('case_stage', v)}
-              placeholder="Select stage..."
-            />
+            <div>
+              <SimpleSelect
+                label="Case Stage"
+                options={stageOptions}
+                value={form.case_stage}
+                onChange={(v) => set('case_stage', v)}
+                placeholder="Select stage..."
+              />
+              {form.case_stage === 'Custom...' && (
+                <input
+                  type="text"
+                  autoFocus
+                  value={customStage}
+                  onChange={(e) => setCustomStage(e.target.value)}
+                  placeholder="Type custom stage…"
+                  className="mt-2 w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 hover:border-gray-400"
+                />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

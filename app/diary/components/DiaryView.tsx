@@ -35,8 +35,7 @@ import {
   ChevronRight,
   Plus,
   Printer,
-  Check,
-  Clock,
+  MessageSquare,
   ExternalLink,
   Loader2,
   Search,
@@ -160,11 +159,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [editingStage, setEditingStage] = useState<string | null>(null)
   const [editingNextDate, setEditingNextDate] = useState<string | null>(null)
 
-  // Adjournment
-  const [adjournHearingId, setAdjournHearingId] = useState<string | null>(null)
-  const [adjournDate, setAdjournDate] = useState('')
-  const [adjournReason, setAdjournReason] = useState('')
-  const [adjournSaving, setAdjournSaving] = useState(false)
+  // Comment
+  const [commentHearingId, setCommentHearingId] = useState<string | null>(null)
+  const [commentText, setCommentText] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
+
+  // Inline custom stage
+  const [inlineCustomStage, setInlineCustomStage] = useState('')
+  const [inlineCustomStageId, setInlineCustomStageId] = useState<string | null>(null)
 
   // Add hearing modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -315,36 +317,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     fetchHearings()
   }
 
-  async function markAttended(hearingId: string) {
+  async function saveComment(hearingId: string) {
+    setCommentSaving(true)
     const supabase = createClient()
-    await supabase.from('hearings').update({ happened: true }).eq('id', hearingId)
-    fetchHearings()
-  }
-
-  async function submitAdjourn(hearingId: string) {
-    if (!adjournDate) return
-    setAdjournSaving(true)
-    const supabase = createClient()
-    const hearing = hearings.find(h => h.id === hearingId)
-    if (!hearing) { setAdjournSaving(false); return }
-    await supabase.from('hearings').update({
-      happened: true,
-      adjournment_reason: adjournReason || 'Adjourned',
-      next_hearing_date: adjournDate,
-    }).eq('id', hearingId)
-    await supabase.from('hearings').insert({
-      case_id: hearing.case_id,
-      hearing_date: adjournDate,
-      previous_hearing_date: hearing.hearing_date,
-      stage_on_date: hearing.stage_on_date,
-      purpose: hearing.purpose,
-      appearing_advocate_name: hearing.appearing_advocate_name || 'self',
-      happened: false,
-    })
-    setAdjournHearingId(null)
-    setAdjournDate('')
-    setAdjournReason('')
-    setAdjournSaving(false)
+    await supabase.from('hearings').update({ outcome_notes: commentText.trim() || null }).eq('id', hearingId)
+    setCommentHearingId(null)
+    setCommentText('')
+    setCommentSaving(false)
     fetchHearings()
   }
 
@@ -761,16 +740,47 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Stage */}
                         <td className="border border-gray-200 px-2 py-2 text-center">
                           {editingStage === h.id ? (
-                            <select
-                              autoFocus
-                              defaultValue={h.stage_on_date || ''}
-                              onChange={(e) => saveStage(h.id, e.target.value)}
-                              onBlur={() => setEditingStage(null)}
-                              className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
-                            >
-                              <option value=""></option>
-                              {stages.map((s) => <option key={s} value={s}>{s}</option>)}
-                            </select>
+                            inlineCustomStageId === h.id ? (
+                              <input
+                                autoFocus
+                                type="text"
+                                value={inlineCustomStage}
+                                onChange={(e) => setInlineCustomStage(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && inlineCustomStage.trim()) {
+                                    saveStage(h.id, inlineCustomStage.trim())
+                                    setInlineCustomStageId(null)
+                                    setInlineCustomStage('')
+                                  }
+                                  if (e.key === 'Escape') {
+                                    setEditingStage(null)
+                                    setInlineCustomStageId(null)
+                                    setInlineCustomStage('')
+                                  }
+                                }}
+                                onBlur={() => { setEditingStage(null); setInlineCustomStageId(null); setInlineCustomStage('') }}
+                                className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+                                placeholder="Type stage…"
+                              />
+                            ) : (
+                              <select
+                                autoFocus
+                                defaultValue={h.stage_on_date || ''}
+                                onChange={(e) => {
+                                  if (e.target.value === 'Custom...') {
+                                    setInlineCustomStageId(h.id)
+                                    setInlineCustomStage('')
+                                  } else {
+                                    saveStage(h.id, e.target.value)
+                                  }
+                                }}
+                                onBlur={() => setEditingStage(null)}
+                                className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+                              >
+                                <option value=""></option>
+                                {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            )
                           ) : (
                             <button
                               onClick={() => setEditingStage(h.id)}
@@ -807,21 +817,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Actions */}
                         <td className="border border-gray-200 px-1 py-2 print:hidden">
                           <div className="flex items-center gap-0.5 justify-center">
-                            {!h.happened ? (
-                              <button onClick={() => markAttended(h.id)} className="p-1.5 rounded text-green-600 hover:bg-green-50 transition-colors" title="Mark attended">
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <span className="p-1.5 text-green-400"><Check className="w-3.5 h-3.5" /></span>
-                            )}
-                            {!h.happened && (
-                              <button
-                                onClick={() => { setAdjournHearingId(h.id); setAdjournDate(''); setAdjournReason('') }}
-                                className="p-1.5 rounded text-amber-600 hover:bg-amber-50 transition-colors" title="Adjourn"
-                              >
-                                <Clock className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                              className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                              title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </button>
                             {ecLink && (
                               <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -831,33 +833,24 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
                       </tr>
 
-                      {/* Adjournment row */}
-                      {adjournHearingId === h.id && (
-                        <tr key={`adj-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-3 print:hidden">
-                            <div className="flex items-center gap-3 flex-wrap">
-                              <span className="text-xs font-medium text-amber-700">Adjourn to:</span>
+                      {/* Comment row */}
+                      {commentHearingId === h.id && (
+                        <tr key={`cmt-${h.id}`}>
+                          <td colSpan={8} className="border border-gray-200 px-3 py-2 print:hidden bg-blue-50/40">
+                            <div className="flex items-center gap-2">
                               <input
-                                type="date"
-                                value={adjournDate}
-                                onChange={(e) => setAdjournDate(e.target.value)}
-                                className="px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900"
-                              />
-                              <input
+                                autoFocus
                                 type="text"
-                                placeholder="Reason (optional)"
-                                value={adjournReason}
-                                onChange={(e) => setAdjournReason(e.target.value)}
-                                className="px-2 py-1 border border-amber-300 rounded text-xs bg-white text-gray-900 w-48"
+                                placeholder="Add a comment or note for this hearing…"
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                className="flex-1 px-3 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
                               />
-                              <button
-                                onClick={() => submitAdjourn(h.id)}
-                                disabled={!adjournDate || adjournSaving}
-                                className="px-3 py-1 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
-                              >
-                                {adjournSaving ? 'Saving...' : 'Confirm'}
+                              <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-3 py-1.5 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                                {commentSaving ? 'Saving…' : 'Save'}
                               </button>
-                              <button onClick={() => setAdjournHearingId(null)} className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50">
+                              <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50">
                                 Cancel
                               </button>
                             </div>
@@ -900,14 +893,46 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Stage</label>
                       <select
-                        value={h.stage_on_date || ''}
-                        onChange={(e) => saveStage(h.id, e.target.value)}
+                        value={inlineCustomStageId === h.id ? 'Custom...' : (h.stage_on_date || '')}
+                        onChange={(e) => {
+                          if (e.target.value === 'Custom...') {
+                            setInlineCustomStageId(h.id)
+                            setInlineCustomStage('')
+                          } else {
+                            setInlineCustomStageId(null)
+                            saveStage(h.id, e.target.value)
+                          }
+                        }}
                         className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 appearance-none"
                         style={{ minHeight: '44px' }}
                       >
                         <option value="">— Select —</option>
                         {stages.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
+                      {inlineCustomStageId === h.id && (
+                        <div className="mt-1 flex gap-1">
+                          <input
+                            autoFocus
+                            type="text"
+                            value={inlineCustomStage}
+                            onChange={(e) => setInlineCustomStage(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && inlineCustomStage.trim()) {
+                                saveStage(h.id, inlineCustomStage.trim())
+                                setInlineCustomStageId(null)
+                                setInlineCustomStage('')
+                              }
+                              if (e.key === 'Escape') { setInlineCustomStageId(null); setInlineCustomStage('') }
+                            }}
+                            placeholder="Type stage…"
+                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm bg-white text-gray-900"
+                          />
+                          <button
+                            onClick={() => { if (inlineCustomStage.trim()) { saveStage(h.id, inlineCustomStage.trim()); setInlineCustomStageId(null); setInlineCustomStage('') } }}
+                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded"
+                          >OK</button>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
@@ -921,36 +946,35 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {!h.happened ? (
-                      <button onClick={() => markAttended(h.id)} className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100">
-                        <Check className="w-4 h-4" /> Attended
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-green-700 bg-green-100">
-                        <Check className="w-4 h-4" /> Done
-                      </span>
-                    )}
-                    {!h.happened && (
-                      <button onClick={() => { setAdjournHearingId(h.id); setAdjournDate(''); setAdjournReason('') }} className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100">
-                        <Clock className="w-4 h-4" /> Adjourn
-                      </button>
-                    )}
+                    <button
+                      onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium ${h.outcome_notes ? 'text-blue-700 bg-blue-100' : 'text-gray-600 bg-gray-50 hover:bg-gray-100'}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      {h.outcome_notes ? 'View note' : 'Add note'}
+                    </button>
                     {ecLink && (
                       <a href={ecLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">
                         <ExternalLink className="w-4 h-4" /> eCourts
                       </a>
                     )}
                   </div>
-                  {adjournHearingId === h.id && (
-                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-xs font-medium text-amber-800 mb-2">Adjourn to:</p>
-                      <input type="date" value={adjournDate} onChange={(e) => setAdjournDate(e.target.value)} className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2" />
-                      <input type="text" placeholder="Reason (optional)" value={adjournReason} onChange={(e) => setAdjournReason(e.target.value)} className="w-full px-2 py-1.5 border border-amber-300 rounded text-xs bg-white text-gray-900 mb-2" />
+                  {commentHearingId === h.id && (
+                    <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                        placeholder="Add a comment…"
+                        className="w-full px-3 py-2 border border-blue-300 rounded text-sm bg-white text-gray-900 mb-2"
+                      />
                       <div className="flex gap-2">
-                        <button onClick={() => submitAdjourn(h.id)} disabled={!adjournDate || adjournSaving} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-amber-600 disabled:opacity-50">
-                          {adjournSaving ? 'Saving...' : 'Adjourn'}
+                        <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-blue-600 disabled:opacity-50">
+                          {commentSaving ? 'Saving...' : 'Save'}
                         </button>
-                        <button onClick={() => setAdjournHearingId(null)} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200">Cancel</button>
+                        <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200">Cancel</button>
                       </div>
                     </div>
                   )}
