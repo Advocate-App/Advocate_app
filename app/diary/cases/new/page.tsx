@@ -485,6 +485,7 @@ export default function NewCasePage() {
         party_plaintiff: plaintiff,
         party_defendant: defendant,
         full_title: fullTitle,
+        status: 'active',
         client_name: form.client_name.trim() || null,
         client_side: form.client_side || null,
         our_role: form.our_role.trim() || null,
