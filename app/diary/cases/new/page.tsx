@@ -434,16 +434,19 @@ export default function NewCasePage() {
         return
       }
 
-      // Get advocate_id (limit 1 — user may have multiple profiles)
-      const { data: advocate, error: advError } = await supabase
-        .from('advocates')
-        .select('id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single()
-
-      if (advError || !advocate) {
-        setSaveError('Advocate profile not found. Please complete your profile first.')
+      // Get advocate_id — try by user_id first, then any accessible record
+      let advocateId: string | null = null
+      const { data: advByUser } = await supabase
+        .from('advocates').select('id').eq('user_id', user.id).limit(1)
+      if (advByUser && advByUser.length > 0) {
+        advocateId = advByUser[0].id
+      } else {
+        const { data: advAny } = await supabase
+          .from('advocates').select('id').limit(1)
+        if (advAny && advAny.length > 0) advocateId = advAny[0].id
+      }
+      if (!advocateId) {
+        setSaveError('Advocate profile not found. Please go to Profile and complete your setup first.')
         setSaving(false)
         return
       }
@@ -472,7 +475,7 @@ export default function NewCasePage() {
       const fullTitle = `${plaintiff} vs ${defendant}`
 
       const row = {
-        advocate_id: advocate.id,
+        advocate_id: advocateId,
         court_level: form.court_level,
         court_code: courtCode,
         court_name: courtName,

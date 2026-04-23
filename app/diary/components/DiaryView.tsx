@@ -349,7 +349,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchQuery(q)
     setSelectedCase(null)
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
-    if (q.trim().length < 2 || !advocateId) { setSearchResults([]); return }
+    if (q.trim().length < 2) { setSearchResults([]); return }
     searchTimeout.current = setTimeout(async () => {
       setSearching(true)
       const supabase = createClient()
