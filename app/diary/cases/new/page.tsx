@@ -13,7 +13,7 @@ import {
   CLIENT_SIDES_DISTRICT,
   CLIENT_SIDES_HC,
 } from '@/lib/constants/courts'
-import { ArrowLeft, Building2, Scale, ChevronDown, Search } from 'lucide-react'
+import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer } from 'lucide-react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -598,7 +598,7 @@ export default function NewCasePage() {
           <ArrowLeft className="w-4 h-4" />
           Back
         </button>
-        <div>
+        <div className="flex-1">
           <h2
             className="text-2xl font-bold text-gray-800"
             style={{ fontFamily: 'Georgia, serif' }}
@@ -606,8 +606,52 @@ export default function NewCasePage() {
             {isDistrict ? 'District Court' : 'High Court'} — New Case
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Fill in the case details below. Fields marked with * are required.
+            Fields marked with * are required.
           </p>
+        </div>
+        <button
+          onClick={() => window.print()}
+          className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50 transition-colors print:hidden"
+        >
+          <Printer className="w-4 h-4" />
+          Print Blank Form
+        </button>
+      </div>
+
+      {/* ── Printable blank form ── */}
+      <style>{`
+        @page { size: A4 portrait; margin: 12mm; }
+        @media print {
+          body > * { display: none !important; }
+          #blank-case-form { display: block !important; }
+        }
+      `}</style>
+      <div id="blank-case-form" style={{ display: 'none', fontFamily: 'Georgia, serif', fontSize: '13px', color: '#111' }}>
+        <div style={{ textAlign: 'center', borderBottom: '2px solid #111', paddingBottom: '4mm', marginBottom: '5mm' }}>
+          <div style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: '#555' }}>Advocate Diary</div>
+          <div style={{ fontSize: '20px', fontWeight: 'bold', margin: '2mm 0' }}>Case Registration Form</div>
+          <div style={{ fontSize: '11px', color: '#777' }}>Fill in and enter into the system later</div>
+        </div>
+        {[
+          ['Court Name', ''],['Court Type', 'District Court / High Court'],['Case Type', ''],
+          ['Case Number', ''],['Case Year', ''],['Filed Date', ''],
+          ['Party 1 (Plaintiff / Petitioner)', ''],['Party 2 (Defendant / Respondent)', ''],
+          ['Client Name', ''],['Client Side', 'Plaintiff / Defendant / Petitioner / Respondent'],
+          ['Our Role', ''],['Opposite Advocate', ''],
+          ['Case Stage', ''],['Next Hearing Date', ''],
+          ['eCourts CNR Number', ''],['Notes', ''],
+        ].map(([label, hint]) => (
+          <div key={label} style={{ marginBottom: '5mm' }}>
+            <div style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#555', marginBottom: '1mm' }}>{label}</div>
+            {hint ? (
+              <div style={{ borderBottom: '1px solid #bbb', paddingBottom: '1mm', color: '#aaa', fontSize: '11px', fontStyle: 'italic' }}>{hint}</div>
+            ) : (
+              <div style={{ borderBottom: '1px solid #bbb', height: '6mm' }} />
+            )}
+          </div>
+        ))}
+        <div style={{ marginTop: '8mm', borderTop: '1px solid #ccc', paddingTop: '3mm', fontSize: '10px', color: '#999', textAlign: 'center' }}>
+          Advocate Diary · advocate-diary-hub-orpin.vercel.app
         </div>
       </div>
 
