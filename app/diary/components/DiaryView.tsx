@@ -441,8 +441,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   return (
     <div className="max-w-6xl print:max-w-none">
 
+      {/* ═══ Print-only date heading ═══ */}
+      <div className="hidden print:block mb-2 text-center">
+        <div style={{ fontSize: '15px', fontWeight: 'bold', fontFamily: 'Georgia,serif' }}>
+          Court Diary — {format(selectedDate, 'd MMMM yyyy')} ({format(selectedDate, 'EEEE')})
+        </div>
+        {advocateName && <div style={{ fontSize: '11px', color: '#555' }}>Adv. {advocateName}</div>}
+      </div>
+
       {/* ═══ Spreadsheet-style Header ═══ */}
-      <div className="bg-white border border-gray-300 rounded-xl overflow-hidden mb-4 print:rounded-none print:border-black">
+      <div className="bg-white border border-gray-300 rounded-xl overflow-hidden mb-4 print:hidden">
         <div className="grid grid-cols-[1fr_2fr_auto_2fr] divide-x divide-gray-300 border-b border-gray-300">
 
           {/* Month */}
@@ -1048,9 +1056,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       <style>{`
         @page { size: A4 portrait; margin: 8mm; }
         @media print {
+          aside, header { display: none !important; }
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) table th { font-size: 12px !important; padding: 3px 5px !important; }
-          body:not(.print-slip-mode) table td { font-size: 13px !important; padding: 3px 5px !important; }
+          body:not(.print-slip-mode) table th { font-size: 12px !important; padding: 2px 4px !important; }
+          body:not(.print-slip-mode) table td { font-size: 12px !important; padding: 2px 4px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
           body.print-slip-mode #diary-slip {
             display: block !important;
