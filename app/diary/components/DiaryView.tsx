@@ -707,7 +707,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       ) : (
         <>
           {/* Desktop Table */}
-          <div className="hidden md:block print:block bg-white rounded-xl border border-gray-200 overflow-hidden print:rounded-none print:border-black">
+          <div className="hidden md:block print:block bg-white rounded-xl border border-gray-200 overflow-hidden print:overflow-visible print:rounded-none print:border-black">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
@@ -1116,12 +1116,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
       {/* ═══ Global print styles injected once ═══ */}
       <style>{`
-        @page { size: legal portrait; margin: 6mm; }
+        @page { size: A4 portrait; margin: 5mm; }
         @media print {
+          html, body { height: auto !important; overflow: visible !important; zoom: 70%; }
           aside, header { display: none !important; }
+          main { overflow: visible !important; height: auto !important; max-height: none !important; }
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) table th { font-size: 10px !important; padding: 1px 3px !important; }
-          body:not(.print-slip-mode) table td { font-size: 10px !important; padding: 1px 3px !important; }
+          body:not(.print-slip-mode) table th { font-size: 9px !important; padding: 1px 2px !important; }
+          body:not(.print-slip-mode) table td { font-size: 9px !important; padding: 1px 2px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
           body.print-slip-mode { display: flex; justify-content: flex-end; padding: 10mm 8mm 0 0; }
           body.print-slip-mode #diary-slip {
