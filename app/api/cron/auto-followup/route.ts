@@ -138,6 +138,10 @@ export async function GET(request: Request) {
       const nowStr = now.toISOString()
       await supabase.from('applications').update({ status: 'followup_1_sent', followup1_sent_at: nowStr, updated_at: nowStr }).eq('id', app.id)
       await supabase.from('application_status_history').insert({ application_id: app.id, status: 'followup_1_sent' })
+      await supabase.from('application_emails').insert({
+        application_id: app.id, direction: 'sent', email_type: 'followup_1',
+        from_email: adv.email, to_email: org.contact_email, subject, body, sent_at: nowStr,
+      })
       followupsSent++
       console.log(`Follow-up 1 sent to ${org.organization_name} via ${account}`)
     }
@@ -172,6 +176,10 @@ export async function GET(request: Request) {
         const nowStr = now.toISOString()
         await supabase.from('applications').update({ status: 'followup_2_sent', followup2_sent_at: nowStr, updated_at: nowStr }).eq('id', app.id)
         await supabase.from('application_status_history').insert({ application_id: app.id, status: 'followup_2_sent' })
+        await supabase.from('application_emails').insert({
+          application_id: app.id, direction: 'sent', email_type: 'followup_2',
+          from_email: adv.email, to_email: org.contact_email, subject, body, sent_at: nowStr,
+        })
         followupsSent++
         console.log(`Follow-up 2 sent to ${org.organization_name} via ${account}`)
       }

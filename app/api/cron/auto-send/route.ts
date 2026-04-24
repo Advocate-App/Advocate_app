@@ -162,6 +162,18 @@ export async function GET(request: Request) {
         status: 'sent',
       })
 
+      // Log the sent email so it appears in the thread view
+      await supabase.from('application_emails').insert({
+        application_id: app.id,
+        direction: 'sent',
+        email_type: 'initial',
+        from_email: fromEmail,
+        to_email: org.contact_email,
+        subject,
+        body,
+        sent_at: now,
+      })
+
       sentCount++
       console.log(`Sent empanelment email to ${org.organization_name} (${org.contact_email})`)
     }
