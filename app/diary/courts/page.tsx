@@ -9,7 +9,7 @@ interface CourtRow { id: string; name: string; short_name: string | null; city: 
 
 type EditState = { key: string; name: string; short: string } | null
 
-const CITIES = ['Udaipur', 'Dungarpur', 'Banswara', 'Rajsamand', 'Jaipur']
+const CITIES = ['Udaipur', 'Dungarpur', 'Banswara', 'Rajsamand', 'Salumber', 'Nathdwara', 'Jaipur']
 
 function normalize(s: string | null | undefined) {
   return (s || '').trim().toLowerCase()
@@ -277,6 +277,8 @@ export default function CourtsPage() {
             className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:border-[#1e3a5f]">
             <option value="">City…</option>
             {CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="Salumber">Salumber</option>
+            <option value="Nathdwara">Nathdwara</option>
             <option value="Jodhpur">Jodhpur</option>
             <option value="Other">Other</option>
           </select>
