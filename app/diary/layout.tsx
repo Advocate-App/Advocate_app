@@ -15,12 +15,16 @@ import {
   LogOut,
   LayoutGrid,
   FolderOpen,
+  Building2,
+  Users,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
   { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
   { href: '/diary/search', label: 'All Cases', icon: Briefcase },
+  { href: '/diary/courts', label: 'My Courts', icon: Building2 },
+  { href: '/diary/clients', label: 'My Clients', icon: Users },
   { href: '/diary/copying', label: 'Copying', icon: Copy },
   { href: '/diary/empanelment', label: 'Empanelment', icon: Send },
   { href: '/diary/profile', label: 'Profile', icon: User },

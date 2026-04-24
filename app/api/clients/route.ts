@@ -48,6 +48,15 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(data)
 }
 
+export async function DELETE(req: NextRequest) {
+  const advocateId = await getAdvocateId(req)
+  if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const { id } = await req.json()
+  if (!id) return NextResponse.json({ error: 'Client id required' }, { status: 400 })
+  await supabaseAdmin.from('clients').delete().eq('id', id).eq('advocate_id', advocateId)
+  return NextResponse.json({ ok: true })
+}
+
 export async function PATCH(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
