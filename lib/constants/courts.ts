@@ -34,6 +34,7 @@ export const DISTRICT_STAGES = [
   'Plaintiff Evidence', 'Defendant Evidence', 'Arguments',
   'Judgment Reserved', 'Judgment', 'Execution',
   '805', 'Arg', 'EMI', 'CPL', 'Sin', 'Eny', 'Ent',
+  'Lok Adalat', 'Disposed',
   'Adjourned', 'For Orders', 'Other', 'Custom...',
 ]
 
@@ -59,7 +60,7 @@ export const HC_STAGES = [
   'Admission', 'Motion', 'Regular Hearing', 'Final Hearing',
   'Arguments', 'Judgment Reserved', 'Judgment',
   'For Orders', 'Notice', 'Service Complete',
-  'Counter Affidavit', 'Rejoinder', 'Other', 'Custom...',
+  'Counter Affidavit', 'Rejoinder', 'Lok Adalat', 'Disposed', 'Other', 'Custom...',
 ]
 
 export const CLIENT_SIDES_DISTRICT = [

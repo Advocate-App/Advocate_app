@@ -290,7 +290,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     const supabase = createClient()
     await supabase.from('hearings').update({ stage_on_date: newStage }).eq('id', hearingId)
     const hearing = hearings.find(h => h.id === hearingId)
-    if (hearing) await supabase.from('cases').update({ case_stage: newStage }).eq('id', hearing.case_id)
+    if (hearing) {
+      const updates: Record<string, string> = { case_stage: newStage }
+      if (newStage === 'Disposed') updates.status = 'disposed'
+      await supabase.from('cases').update(updates).eq('id', hearing.case_id)
+    }
     setEditingStage(null)
     fetchHearings()
   }
