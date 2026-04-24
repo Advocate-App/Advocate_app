@@ -65,20 +65,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Try several env var patterns that Vercel/Supabase integration sets
+  let bodyUrl: string | null = null
+  try {
+    const body = await req.json()
+    bodyUrl = body?.db_url || null
+  } catch { /* no body */ }
+
+  const ref = 'iukpuouiutxoworbdfuo'
+  const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+
+  // Try several connection string patterns
   const dbUrl =
+    bodyUrl ||
     process.env.POSTGRES_URL_NON_POOLING ||
     process.env.POSTGRES_URL ||
     process.env.DATABASE_URL ||
     (process.env.POSTGRES_PASSWORD
-      ? `postgresql://postgres:${process.env.POSTGRES_PASSWORD}@db.iukpuouiutxoworbdfuo.supabase.co:5432/postgres`
-      : null)
+      ? `postgresql://postgres:${process.env.POSTGRES_PASSWORD}@db.${ref}.supabase.co:5432/postgres`
+      : null) ||
+    // Try service role key as password (Supabase pooler session mode)
+    `postgresql://postgres.${ref}:${svcKey}@aws-0-ap-south-1.pooler.supabase.com:5432/postgres`
 
   if (!dbUrl) {
-    return NextResponse.json({
-      error: 'No database URL found. Set POSTGRES_URL_NON_POOLING in Vercel environment variables.',
-      hint: 'Go to Vercel → Project → Settings → Environment Variables and check for POSTGRES_URL_NON_POOLING',
-    }, { status: 500 })
+    return NextResponse.json({ error: 'No database URL' }, { status: 500 })
   }
 
   const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
