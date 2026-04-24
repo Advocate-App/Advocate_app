@@ -1116,14 +1116,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
       {/* ═══ Global print styles injected once ═══ */}
       <style>{`
-        @page { size: A4 portrait; margin: 5mm; }
+        @page { size: A4 portrait; margin: 6mm; }
         @media print {
-          html, body { height: auto !important; overflow: visible !important; zoom: 70%; }
+          html, body { height: auto !important; overflow: visible !important; }
           aside, header { display: none !important; }
           main { overflow: visible !important; height: auto !important; max-height: none !important; }
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) table th { font-size: 9px !important; padding: 1px 2px !important; }
-          body:not(.print-slip-mode) table td { font-size: 9px !important; padding: 1px 2px !important; }
+          body:not(.print-slip-mode) table th { font-size: 11px !important; padding: 2px 4px !important; }
+          body:not(.print-slip-mode) table td { font-size: 11px !important; padding: 2px 4px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
           body.print-slip-mode { display: flex; justify-content: flex-end; padding: 10mm 8mm 0 0; }
           body.print-slip-mode #diary-slip {
