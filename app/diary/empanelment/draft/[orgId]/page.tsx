@@ -53,6 +53,8 @@ export default function DraftApplicationPage() {
   const [application, setApplication] = useState<ApplicationRecord | null>(null)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [notes, setNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [statusHistory, setStatusHistory] = useState<StatusEntry[]>([])
@@ -61,6 +63,11 @@ export default function DraftApplicationPage() {
   const [sendMethod, setSendMethod] = useState<'email' | 'physical' | 'online_portal'>('email')
   const [sentDate, setSentDate] = useState(new Date().toISOString().split('T')[0])
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Run schema migration once so notes column exists
+  useEffect(() => {
+    fetch('/api/empanelment/setup', { method: 'POST' }).catch(() => {})
+  }, [])
 
   const loadData = useCallback(async () => {
     const supabase = createClient()
@@ -84,6 +91,7 @@ export default function DraftApplicationPage() {
       setApplication(appData)
       setSubject(appData.draft_subject || '')
       setBody(appData.draft_body || '')
+      setNotes((appData as unknown as { notes?: string }).notes || '')
       // Load status history
       const { data: history } = await supabase
         .from('application_status_history')
@@ -242,6 +250,17 @@ export default function DraftApplicationPage() {
       await loadData()
     }
     setSaving(false)
+  }
+
+  async function saveNotes() {
+    if (!application) return
+    setSavingNotes(true)
+    const supabase = createClient()
+    await supabase
+      .from('applications')
+      .update({ notes, updated_at: new Date().toISOString() })
+      .eq('id', application.id)
+    setSavingNotes(false)
   }
 
   if (loading) {
@@ -473,6 +492,32 @@ export default function DraftApplicationPage() {
           </div>
         )}
       </div>
+
+      {/* Notes / call log */}
+      {application && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-3">
+          <h2 className="text-lg font-semibold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>
+            Notes &amp; Call Log
+          </h2>
+          <p className="text-xs text-gray-400">Track phone calls, WhatsApp conversations, contacts, or anything useful about this organisation.</p>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={4}
+            placeholder="e.g. Called on 12 Apr — spoke to Mr. Sharma, asked to resend on legal@company.com. WhatsApp also works."
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 focus:border-[#1e3a5f] text-gray-800"
+          />
+          <button
+            onClick={saveNotes}
+            disabled={savingNotes}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: '#1e3a5f' }}
+          >
+            {savingNotes ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {savingNotes ? 'Saving...' : 'Save Notes'}
+          </button>
+        </div>
+      )}
 
       {/* Status history */}
       {statusHistory.length > 0 && (
