@@ -148,10 +148,10 @@ export default function AllCasesPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-800 max-w-[200px]">
-                        <span className="block truncate" title={c.party_plaintiff}>{c.party_plaintiff}</span>
+                        <Link href={`/diary/cases/${c.id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={c.party_plaintiff}>{c.party_plaintiff}</Link>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-800 max-w-[200px]">
-                        <span className="block truncate" title={c.party_defendant}>{c.party_defendant}</span>
+                        <Link href={`/diary/cases/${c.id}`} className="block truncate hover:text-[#1e3a5f] text-gray-700" title={c.party_defendant}>{c.party_defendant}</Link>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {c.case_stage || <span className="text-gray-300">—</span>}

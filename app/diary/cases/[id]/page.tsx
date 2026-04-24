@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useDropzone } from 'react-dropzone'
@@ -138,6 +138,7 @@ function hearingBorderColor(hearing: Hearing): string {
 // ───────────────────── Main Component ─────────────────────
 export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
 
   // Core state
   const [caseData, setCaseData] = useState<CaseRecord | null>(null)
@@ -168,6 +169,10 @@ export default function CaseDetailPage() {
   const [uploadDocType, setUploadDocType] = useState('other')
   const [uploading, setUploading] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // Delete case
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // eCourts state
   const [cnrInput, setCnrInput] = useState('')
@@ -395,6 +400,14 @@ export default function CaseDetailPage() {
     loadDocuments()
   }
 
+  // ───── Delete case ─────
+  async function deleteCase() {
+    setDeleting(true)
+    const supabase = createClient()
+    await supabase.from('cases').delete().eq('id', id)
+    router.push('/diary/search')
+  }
+
   // ───── eCourts: save CNR ─────
   async function saveCnr(e: React.FormEvent) {
     e.preventDefault()
@@ -518,14 +531,42 @@ export default function CaseDetailPage() {
           </div>
         </div>
 
-        <Link
-          href={`/diary/cases/${id}/edit`}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium shrink-0"
-          style={{ background: '#1e3a5f' }}
-        >
-          <Pencil className="w-4 h-4" />
-          Edit
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href={`/diary/cases/${id}/edit`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
+            style={{ background: '#1e3a5f' }}
+          >
+            <Pencil className="w-4 h-4" />
+            Edit
+          </Link>
+          {!showDeleteConfirm ? (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+              <span className="text-sm text-red-700 font-medium">Delete this case?</span>
+              <button
+                onClick={deleteCase}
+                disabled={deleting}
+                className="px-3 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Yes, Delete'}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Tabs ── */}

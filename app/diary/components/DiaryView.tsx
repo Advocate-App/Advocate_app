@@ -729,12 +729,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
                         {/* Party 1 */}
                         <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
-                          <span className="block truncate" title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</span>
+                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
                         </td>
 
                         {/* Party 2 */}
                         <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
-                          <span className="block truncate" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</span>
+                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
                         </td>
 
                         {/* Stage */}
