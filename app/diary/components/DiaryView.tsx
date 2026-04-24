@@ -1116,28 +1116,24 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
       {/* ═══ Global print styles injected once ═══ */}
       <style>{`
-        @page { size: A4 portrait; margin: 8mm; }
+        @page { size: legal portrait; margin: 6mm; }
         @media print {
           aside, header { display: none !important; }
           body:not(.print-slip-mode) #diary-slip { display: none !important; }
-          body:not(.print-slip-mode) table th { font-size: 12px !important; padding: 2px 4px !important; }
-          body:not(.print-slip-mode) table td { font-size: 12px !important; padding: 2px 4px !important; }
+          body:not(.print-slip-mode) table th { font-size: 10px !important; padding: 1px 3px !important; }
+          body:not(.print-slip-mode) table td { font-size: 10px !important; padding: 1px 3px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
+          body.print-slip-mode { display: flex; justify-content: flex-end; padding: 10mm 8mm 0 0; }
           body.print-slip-mode #diary-slip {
             display: block !important;
-            position: absolute !important;
-            top: 10mm !important;
-            right: 8mm !important;
-            left: auto !important;
+            position: static !important;
             width: 92mm !important;
-            max-height: 210mm !important;
             height: auto !important;
-            overflow: hidden !important;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: 12.5px;
-            line-height: 1.35;
+            font-size: 11px;
+            line-height: 1.3;
             border: 0.5px solid #999;
-            padding: 4mm 5mm 3mm;
+            padding: 3mm 4mm 3mm;
             box-sizing: border-box;
             background: white;
           }
@@ -1154,27 +1150,27 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           )
           return (
             <>
-              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '1.5mm' }}>
-                <div style={{ fontSize: '8px', letterSpacing: '1px', textTransform: 'uppercase', color: '#777' }}>Court Diary</div>
-                <div style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5mm 0 0', lineHeight: 1.2 }}>{format(selectedDate, 'd MMMM yyyy')}</div>
-                <div style={{ fontSize: '10px', color: '#444' }}>{dayName} · {HINDI_DAYS[dayName] || ''}</div>
-                {advocateName && <div style={{ fontSize: '9px', color: '#666', fontStyle: 'italic' }}>Adv. {advocateName}</div>}
+              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1mm', marginBottom: '1.5mm' }}>
+                <div style={{ fontSize: '11px', fontWeight: 'bold' }}>
+                  {advocateName ? `Adv. ${advocateName} · ` : ''}{format(selectedDate, 'd MMM yyyy')} ({dayName.slice(0, 3)} · {HINDI_DAYS[dayName] || ''})
+                </div>
               </div>
               {sorted.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '11px', color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {sorted.map((h, i) => (
-                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.4mm 0' }}>
-                      <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#666', flexShrink: 0, fontSize: '11px' }}>{i + 1}.</span>
+                  {sorted.map((h) => (
+                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.3mm 0', borderBottom: '0.3px dotted #ddd' }}>
                       <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
+                      <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '10px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
                       <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                       <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
                     </li>
                   ))}
                 </ul>
               )}
-              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '9px', color: '#888' }}>
+              <div style={{ marginTop: '1.5mm', paddingTop: '1mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '8px', color: '#888' }}>
                 {sorted.length} matter{sorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
               </div>
             </>

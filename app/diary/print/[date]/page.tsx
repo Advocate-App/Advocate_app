@@ -164,14 +164,11 @@ export default function PrintSlipPage() {
         @media print {
           html, body {
             margin: 0; padding: 0; background: white;
-            width: 210mm; height: 297mm; overflow: hidden;
+            width: 210mm;
           }
           .no-print { display: none !important; }
-          .wrap { display: block; padding: 0; background: white; }
+          .wrap { display: flex; justify-content: flex-end; padding: 10mm 8mm 0 0; background: white; }
           .slip {
-            position: absolute;
-            top: 10mm;
-            right: 8mm;
             width: 88mm;
             border: none;
           }
@@ -188,13 +185,10 @@ export default function PrintSlipPage() {
         .header {
           text-align: center;
           border-bottom: 1.5px solid #222;
-          padding-bottom: 2mm;
-          margin-bottom: 2mm;
+          padding-bottom: 1.5mm;
+          margin-bottom: 1.5mm;
         }
-        .header-title { font-size: 8px; letter-spacing: 1px; text-transform: uppercase; color: #555; }
-        .header-date { font-size: 13px; font-weight: bold; margin: 1mm 0 0; }
-        .header-day { font-size: 8.5px; color: #333; }
-        .header-adv { font-size: 8px; color: #666; font-style: italic; margin-top: 1mm; }
+        .header-oneliner { font-size: 10px; font-weight: bold; }
         .cases { list-style: none; margin: 0; padding: 0; }
         .case-row {
           display: flex;
@@ -247,10 +241,9 @@ export default function PrintSlipPage() {
       <div className="wrap">
         <div className="slip">
           <div className="header">
-            <div className="header-title">Court Diary</div>
-            <div className="header-date">{displayDate}</div>
-            <div className="header-day">{dayName} &nbsp;·&nbsp; {dayHindi}</div>
-            {advocateName && <div className="header-adv">Adv. {advocateName}</div>}
+            <div className="header-oneliner">
+              {advocateName ? `Adv. ${advocateName} · ` : ''}{displayDate} ({dayName.slice(0,3)} · {dayHindi})
+            </div>
           </div>
 
           {cases.length === 0 ? (
@@ -261,7 +254,6 @@ export default function PrintSlipPage() {
             <ul className="cases">
               {cases.map((c) => (
                 <li key={c.sr} className="case-row">
-                  <span className="sr">{c.sr}.</span>
                   <span className="court">{getCourtShortLabel(c.court)}</span>
                   <span className="sep">–</span>
                   <span className="caseno">{formatCaseNumber(c.caseNumber, c.caseYear)}</span>
