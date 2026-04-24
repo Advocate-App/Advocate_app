@@ -30,14 +30,36 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { name, city } = await req.json()
+  const { name, short_name, city } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Court name is required' }, { status: 400 })
   const { data, error } = await supabaseAdmin
     .from('custom_courts')
-    .insert({ advocate_id: advocateId, name: name.trim(), city: city?.trim() || null })
+    .insert({ advocate_id: advocateId, name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
     .select('*')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json(data)
+}
+
+export async function PATCH(req: NextRequest) {
+  const advocateId = await getAdvocateId(req)
+  if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const { id, name, short_name, city } = await req.json()
+  if (!id || !name?.trim()) return NextResponse.json({ error: 'id and name required' }, { status: 400 })
+  const { data, error } = await supabaseAdmin
+    .from('custom_courts')
+    .update({ name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
+    .eq('id', id)
+    .eq('advocate_id', advocateId)
+    .select('*')
+    .single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  // Propagate new name to all cases using this custom court
+  await supabaseAdmin
+    .from('cases')
+    .update({ court_name: name.trim() })
+    .eq('court_code', `CUSTOM_${id}`)
+    .eq('advocate_id', advocateId)
   return NextResponse.json(data)
 }
 

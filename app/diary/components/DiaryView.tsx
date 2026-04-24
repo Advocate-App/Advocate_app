@@ -93,6 +93,8 @@ interface HearingWithCase extends HearingRow {
   caseData: CaseRecord
 }
 
+interface CustomCourtRow { id: string; name: string; short_name: string | null }
+
 interface SearchResult {
   id: string
   full_title: string
@@ -168,6 +170,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [inlineCustomStage, setInlineCustomStage] = useState('')
   const [inlineCustomStageId, setInlineCustomStageId] = useState<string | null>(null)
 
+  // Custom court short labels
+  const [customCourtMap, setCustomCourtMap] = useState<Record<string, string>>({})
+
   // Add hearing modal
   const [showAddModal, setShowAddModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -203,7 +208,22 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         .eq('user_id', user.id)
         .limit(1)
         .single()
-      if (data) { setAdvocateId(data.id); setAdvocateName(data.full_name || '') }
+      if (data) {
+        setAdvocateId(data.id)
+        setAdvocateName(data.full_name || '')
+        // Load custom court short labels
+        const { data: cc } = await supabase
+          .from('custom_courts')
+          .select('id, name, short_name')
+          .eq('advocate_id', data.id)
+        if (cc) {
+          const map: Record<string, string> = {}
+          for (const c of cc as CustomCourtRow[]) {
+            map[`CUSTOM_${c.id}`] = c.short_name || c.name
+          }
+          setCustomCourtMap(map)
+        }
+      }
     }
     loadAdvocate()
   }, [])
@@ -402,6 +422,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchResults([])
     setSelectedCase(null)
     setShowAddModal(true)
+  }
+
+  function courtShortLabel(courtCode: string, fallback: string): string {
+    if (customCourtMap[courtCode]) return customCourtMap[courtCode]
+    const builtin = getCourtShortLabel(courtCode)
+    return builtin || fallback
   }
 
   // Filtered hearings for diary search
@@ -720,7 +746,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             className="inline-block px-1.5 py-0.5 rounded text-sm font-medium text-gray-700 whitespace-nowrap"
                             style={{ background: courtBg }}
                           >
-                            {getCourtShortLabel(courtCode) || h.caseData.court_name}
+                            {courtShortLabel(courtCode, h.caseData.court_name)}
                           </span>
                         </td>
 
@@ -881,7 +907,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 <div key={h.id} className="bg-white rounded-xl border border-gray-200 p-4" style={{ borderLeft: `4px solid ${borderColor}` }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="inline-block px-2.5 py-0.5 rounded text-sm font-medium text-gray-700" style={{ background: courtBg }}>
-                      {getCourtLabel(courtCode || h.caseData.court_name)}
+                      {customCourtMap[courtCode] || getCourtLabel(courtCode || h.caseData.court_name)}
                     </span>
                     <span className="text-sm font-mono text-gray-500">
                       {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
@@ -1136,7 +1162,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   {sorted.map((h, i) => (
                     <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.4mm 0' }}>
                       <span style={{ minWidth: '5mm', fontWeight: 'bold', color: '#666', flexShrink: 0, fontSize: '11px' }}>{i + 1}.</span>
-                      <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{getCourtShortLabel(h.caseData.court_code || h.caseData.court_name)}</span>
+                      <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
                       <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                       <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
                     </li>

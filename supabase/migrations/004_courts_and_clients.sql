@@ -23,9 +23,11 @@ CREATE TABLE IF NOT EXISTS custom_courts (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   advocate_id UUID REFERENCES advocates(id) ON DELETE CASCADE NOT NULL,
   name        TEXT NOT NULL,
+  short_name  TEXT,
   city        TEXT,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE custom_courts ADD COLUMN IF NOT EXISTS short_name TEXT;
 ALTER TABLE custom_courts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "custom_courts_own" ON custom_courts;
 CREATE POLICY "custom_courts_own" ON custom_courts
