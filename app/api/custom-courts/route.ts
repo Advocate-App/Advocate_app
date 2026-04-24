@@ -30,11 +30,32 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { name, short_name, city } = await req.json()
+  const { name, short_name, city, builtin_code } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Court name is required' }, { status: 400 })
+
+  // For built-in court overrides: upsert by builtin_code
+  if (builtin_code) {
+    const { data: existing } = await supabaseAdmin
+      .from('custom_courts')
+      .select('id')
+      .eq('advocate_id', advocateId)
+      .eq('builtin_code', builtin_code)
+      .limit(1)
+    if (existing && existing.length > 0) {
+      const { data, error } = await supabaseAdmin
+        .from('custom_courts')
+        .update({ name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
+        .eq('id', existing[0].id)
+        .eq('advocate_id', advocateId)
+        .select('*').single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json(data)
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from('custom_courts')
-    .insert({ advocate_id: advocateId, name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
+    .insert({ advocate_id: advocateId, name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null, builtin_code: builtin_code || null })
     .select('*')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -54,7 +75,6 @@ export async function PATCH(req: NextRequest) {
     .select('*')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  // Propagate new name to all cases using this custom court
   await supabaseAdmin
     .from('cases')
     .update({ court_name: name.trim() })

@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     .from('clients')
     .select('*')
     .eq('advocate_id', advocateId)
+    .order('is_company', { ascending: false })
     .order('name')
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json(data)
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { name, phone, email, city, notes } = await req.json()
+  const { name, phone, email, city, notes, is_company } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Client name is required' }, { status: 400 })
   const { data, error } = await supabaseAdmin
     .from('clients')
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
       email: email?.trim() || null,
       city: city?.trim() || null,
       notes: notes?.trim() || null,
+      is_company: !!is_company,
     })
     .select('*')
     .single()
@@ -60,7 +62,7 @@ export async function DELETE(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { id, name, phone, email, city, notes } = await req.json()
+  const { id, name, phone, email, city, notes, is_company } = await req.json()
   if (!id) return NextResponse.json({ error: 'Client id required' }, { status: 400 })
 
   const { data, error } = await supabaseAdmin
@@ -71,6 +73,7 @@ export async function PATCH(req: NextRequest) {
       email: email?.trim() || null,
       city: city?.trim() || null,
       notes: notes?.trim() || null,
+      is_company: !!is_company,
     })
     .eq('id', id)
     .eq('advocate_id', advocateId)
@@ -79,7 +82,6 @@ export async function PATCH(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
 
-  // Update denormalized client_name on all linked cases
   if (name?.trim()) {
     await supabaseAdmin
       .from('cases')

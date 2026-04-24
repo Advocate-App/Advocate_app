@@ -93,7 +93,7 @@ interface HearingWithCase extends HearingRow {
   caseData: CaseRecord
 }
 
-interface CustomCourtRow { id: string; name: string; short_name: string | null }
+interface CustomCourtRow { id: string; name: string; short_name: string | null; builtin_code: string | null }
 
 interface SearchResult {
   id: string
@@ -219,7 +219,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         if (cc) {
           const map: Record<string, string> = {}
           for (const c of cc as CustomCourtRow[]) {
-            map[`CUSTOM_${c.id}`] = c.short_name || c.name
+            if (c.builtin_code) {
+              // Override for a built-in court
+              map[c.builtin_code] = c.short_name || c.name
+            } else {
+              map[`CUSTOM_${c.id}`] = c.short_name || c.name
+            }
           }
           setCustomCourtMap(map)
         }
