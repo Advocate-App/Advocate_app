@@ -834,8 +834,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               type="date"
                               autoFocus
                               defaultValue={h.next_hearing_date || ''}
-                              onChange={(e) => saveNextDate(h.id, e.target.value)}
-                              onBlur={() => setEditingNextDate(null)}
+                              onBlur={(e) => { if (e.target.value) saveNextDate(h.id, e.target.value); setEditingNextDate(null) }}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setEditingNextDate(null) }}
                               className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
                             />
                           ) : (
@@ -973,8 +973,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
                       <input
                         type="date"
-                        value={h.next_hearing_date || ''}
-                        onChange={(e) => saveNextDate(h.id, e.target.value)}
+                        defaultValue={h.next_hearing_date || ''}
+                        onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
                         className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                         style={{ minHeight: '44px' }}
                       />
