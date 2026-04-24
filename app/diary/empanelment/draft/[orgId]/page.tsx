@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   Sparkles,
@@ -45,7 +45,9 @@ interface StatusEntry {
 export default function DraftApplicationPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const orgId = params.orgId as string
+  const advocateId = searchParams.get('advocate') || ''
 
   const [org, setOrg] = useState<Organization | null>(null)
   const [application, setApplication] = useState<ApplicationRecord | null>(null)
@@ -71,11 +73,12 @@ export default function DraftApplicationPage() {
 
     if (orgData) setOrg(orgData)
 
-    const { data: appData } = await supabase
+    let appQuery = supabase
       .from('applications')
       .select('*')
       .eq('organization_id', orgId)
-      .single()
+    if (advocateId) appQuery = appQuery.eq('advocate_id', advocateId)
+    const { data: appData } = await appQuery.single()
 
     if (appData) {
       setApplication(appData)
@@ -99,7 +102,7 @@ export default function DraftApplicationPage() {
     }
 
     setLoading(false)
-  }, [orgId])
+  }, [orgId, advocateId])
 
   useEffect(() => {
     loadData()
@@ -112,7 +115,7 @@ export default function DraftApplicationPage() {
       const res = await fetch('/api/empanelment/generate-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId: orgId }),
+        body: JSON.stringify({ organizationId: orgId, advocateId }),
       })
       const data = await res.json()
       if (data.error) {
@@ -166,6 +169,7 @@ export default function DraftApplicationPage() {
         .from('applications')
         .insert({
           organization_id: orgId,
+          advocate_id: advocateId || null,
           draft_subject: subject,
           draft_body: body,
           status: 'drafted',

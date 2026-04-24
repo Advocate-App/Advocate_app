@@ -60,6 +60,15 @@ export async function getAccessToken(account: 'avi' | 'ratnesh'): Promise<string
   return data.access_token as string
 }
 
+/** RFC 2047 Base64-encode a header value if it contains non-ASCII characters. */
+function encodeSubjectHeader(subject: string): string {
+  if (/[^\x00-\x7F]/.test(subject)) {
+    const base64 = Buffer.from(subject, 'utf-8').toString('base64')
+    return `=?UTF-8?B?${base64}?=`
+  }
+  return subject
+}
+
 /**
  * Build a base64url-encoded MIME message.
  */
@@ -73,7 +82,7 @@ function buildMimeMessage(
   const mimeLines = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubjectHeader(subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
   ]
