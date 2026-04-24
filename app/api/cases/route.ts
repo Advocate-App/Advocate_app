@@ -24,14 +24,48 @@ export async function POST(req: NextRequest) {
     const advocateId = advRows?.[0]?.id
     if (!advocateId) return NextResponse.json({ error: 'Advocate profile not found' }, { status: 400 })
 
-    // Insert case (service role bypasses RLS)
-    const { data: newCase, error: insertErr } = await supabaseAdmin
-      .from('cases')
-      .insert({ ...body, advocate_id: advocateId })
-      .select('id')
-      .single()
+    const validClientSides = ['plaintiff','defendant','both','intervenor','petitioner','respondent','applicant','opposite_party','appellant','caveator']
+    // next_hearing_date is not a column on cases — handled separately for hearings
+    const { next_hearing_date, ...caseFields } = body
 
-    if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 400 })
+    const baseCaseData = {
+      advocate_id: advocateId,
+      court_level: caseFields.court_level,
+      court_name: caseFields.court_name,
+      court_code: caseFields.court_code || null,
+      case_number: caseFields.case_number,
+      case_year: caseFields.case_year,
+      case_type: caseFields.case_type || null,
+      party_plaintiff: caseFields.party_plaintiff,
+      party_defendant: caseFields.party_defendant,
+      status: caseFields.status || 'active',
+      client_name: caseFields.client_name || null,
+      client_side: validClientSides.includes(body.client_side) ? body.client_side : null,
+      our_role: caseFields.our_role || null,
+      opposite_advocate: caseFields.opposite_advocate || null,
+      filed_date: caseFields.filed_date || null,
+      case_stage: caseFields.case_stage || null,
+      ecourts_cnr: caseFields.ecourts_cnr || null,
+      notes: caseFields.notes || null,
+    }
+
+    // Try with new columns (migration 004). If columns don't exist yet, fall back.
+    const fullData = {
+      ...baseCaseData,
+      ...(caseFields.city ? { city: caseFields.city } : {}),
+      ...(caseFields.client_id ? { client_id: caseFields.client_id } : {}),
+    }
+
+    let { data: newCase, error: insertErr } = await supabaseAdmin
+      .from('cases').insert(fullData).select('id').single()
+
+    if (insertErr && (insertErr.message.includes('city') || insertErr.message.includes('client_id') || insertErr.message.includes('column'))) {
+      const fallback = await supabaseAdmin.from('cases').insert(baseCaseData).select('id').single()
+      newCase = fallback.data
+      insertErr = fallback.error
+    }
+
+    if (insertErr || !newCase) return NextResponse.json({ error: insertErr?.message || 'Insert failed' }, { status: 400 })
 
     // Insert hearings
     const today = new Date().toISOString().split('T')[0]
@@ -39,16 +73,16 @@ export async function POST(req: NextRequest) {
       case_id: newCase.id,
       hearing_date: today,
       stage_on_date: body.case_stage || null,
-      next_hearing_date: body.next_hearing_date || null,
+      next_hearing_date: next_hearing_date || null,
       purpose: 'Case Commenced',
       appearing_advocate_name: 'self',
       happened: true,
     })
 
-    if (body.next_hearing_date && body.next_hearing_date !== today) {
+    if (next_hearing_date && next_hearing_date !== today) {
       await supabaseAdmin.from('hearings').insert({
         case_id: newCase.id,
-        hearing_date: body.next_hearing_date,
+        hearing_date: next_hearing_date,
         previous_hearing_date: today,
         stage_on_date: body.case_stage || null,
         purpose: null,
