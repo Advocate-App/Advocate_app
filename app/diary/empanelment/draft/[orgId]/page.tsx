@@ -285,11 +285,16 @@ export default function DraftApplicationPage() {
     setMessage(null)
     const supabase = createClient()
 
+    const sentAt = sentDate
+      ? new Date(sentDate + 'T12:00:00').toISOString()
+      : new Date().toISOString()
+
     const { error } = await supabase
       .from('applications')
       .update({
         status: 'sent',
         application_method: sendMethod,
+        application_sent_at: sentAt,
         updated_at: new Date().toISOString(),
       })
       .eq('id', application.id)

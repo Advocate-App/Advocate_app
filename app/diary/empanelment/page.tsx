@@ -15,7 +15,7 @@ import {
 import { FATHER_EMPANELLED_COMPANIES } from '@/lib/constants/empanelment'
 
 type Priority = 'high' | 'medium' | 'low'
-type AppStatus = 'new' | 'drafted' | 'ready_to_send' | 'sent' | 'under_review' | 'empanelled' | 'father_empanelled'
+type AppStatus = 'new' | 'drafted' | 'ready_to_send' | 'sent' | 'followup_1_sent' | 'followup_2_sent' | 'under_review' | 'empanelled' | 'father_empanelled'
 
 interface Organization {
   id: string
@@ -44,13 +44,15 @@ const PRIORITY_COLORS: Record<Priority, { bg: string; text: string }> = {
 }
 
 const STATUS_CONFIG: Record<AppStatus, { label: string; bg: string; text: string }> = {
-  new:             { label: 'New',          bg: '#f3f4f6', text: '#9ca3af' },
-  drafted:         { label: 'Drafted',      bg: '#fef3c7', text: '#92400e' },
-  ready_to_send:   { label: 'Ready',        bg: '#fce7f3', text: '#9d174d' },
-  sent:            { label: 'Sent',         bg: '#dbeafe', text: '#1e40af' },
-  under_review:    { label: 'Under Review', bg: '#e0e7ff', text: '#3730a3' },
-  empanelled:      { label: 'Empanelled',   bg: '#d1fae5', text: '#065f46' },
-  father_empanelled: { label: 'Father ✓',  bg: '#d1fae5', text: '#065f46' },
+  new:               { label: 'New',          bg: '#f3f4f6', text: '#9ca3af' },
+  drafted:           { label: 'Drafted',      bg: '#fef3c7', text: '#92400e' },
+  ready_to_send:     { label: 'Ready',        bg: '#fce7f3', text: '#9d174d' },
+  sent:              { label: 'Sent',         bg: '#dbeafe', text: '#1e40af' },
+  followup_1_sent:   { label: 'Follow-up 1', bg: '#e0e7ff', text: '#4338ca' },
+  followup_2_sent:   { label: 'Follow-up 2', bg: '#ede9fe', text: '#6d28d9' },
+  under_review:      { label: 'Under Review', bg: '#fef9c3', text: '#854d0e' },
+  empanelled:        { label: 'Empanelled',   bg: '#d1fae5', text: '#065f46' },
+  father_empanelled: { label: 'Father ✓',    bg: '#d1fae5', text: '#065f46' },
 }
 
 const SEGMENT_ORDER: Record<string, number> = {
@@ -131,7 +133,7 @@ export default function EmpanelmentPage() {
     let drafted = 0, sent = 0, review = 0, empanelled = 0
     for (const o of orgsWithStatus) {
       if (o.appStatus === 'drafted' || o.appStatus === 'ready_to_send') drafted++
-      else if (o.appStatus === 'sent') sent++
+      else if (o.appStatus === 'sent' || o.appStatus === 'followup_1_sent' || o.appStatus === 'followup_2_sent') sent++
       else if (o.appStatus === 'under_review') review++
       else if (o.appStatus === 'empanelled') empanelled++
     }
