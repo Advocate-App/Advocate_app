@@ -1,7 +1,11 @@
 /**
- * Shared Gmail helper functions for sending emails via the Gmail API.
- * Supports Avi's and Ratnesh's accounts.
+ * Gmail helper — sends/reads email for Avi and Ratnesh.
+ * Refresh tokens are stored in the gmail_tokens Supabase table (primary source).
+ * Falls back to env vars if no DB row exists.
+ * Access tokens are cached in the DB (1-hour expiry) to minimize token exchanges.
  */
+
+import { createAdminClient } from '@/lib/supabase/admin'
 
 interface GmailCredentials {
   clientId: string
@@ -11,12 +15,12 @@ interface GmailCredentials {
   fromName: string
 }
 
-function getCredentials(account: 'avi' | 'ratnesh'): GmailCredentials {
+function getEnvCredentials(account: 'avi' | 'ratnesh'): Omit<GmailCredentials, 'refreshToken'> & { envRefreshToken: string } {
   if (account === 'avi') {
     return {
       clientId: process.env.GOOGLE_CLIENT_ID_AVI || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET_AVI || '',
-      refreshToken: process.env.GOOGLE_REFRESH_TOKEN_AVI || process.env.GOOGLE_AVI_REFRESH_TOKEN || '',
+      envRefreshToken: process.env.GOOGLE_REFRESH_TOKEN_AVI || process.env.GOOGLE_AVI_REFRESH_TOKEN || '',
       fromEmail: 'jainavi.aj@gmail.com',
       fromName: 'Avi Jain',
     }
@@ -24,40 +28,10 @@ function getCredentials(account: 'avi' | 'ratnesh'): GmailCredentials {
   return {
     clientId: process.env.GOOGLE_CLIENT_ID_RATNESH || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET_RATNESH || '',
-    refreshToken: process.env.GOOGLE_RATNESH_REFRESH_TOKEN || '',
+    envRefreshToken: process.env.GOOGLE_RATNESH_REFRESH_TOKEN || '',
     fromEmail: 'ratneshshah67@gmail.com',
     fromName: 'Ratnesh Kumar Jain Shah',
   }
-}
-
-/**
- * Exchange a refresh token for a fresh access token.
- */
-export async function getAccessToken(account: 'avi' | 'ratnesh'): Promise<string> {
-  const creds = getCredentials(account)
-
-  if (!creds.refreshToken) {
-    throw new Error(`No refresh token configured for account: ${account}`)
-  }
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: creds.clientId,
-      client_secret: creds.clientSecret,
-      refresh_token: creds.refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  })
-
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`Token exchange failed for ${account}: ${errText}`)
-  }
-
-  const data = await res.json()
-  return data.access_token as string
 }
 
 /** RFC 2047 Base64-encode a header value if it contains non-ASCII characters. */
@@ -69,9 +43,6 @@ function encodeSubjectHeader(subject: string): string {
   return subject
 }
 
-/**
- * Build a base64url-encoded MIME message.
- */
 function buildMimeMessage(
   from: string,
   to: string,
@@ -101,9 +72,99 @@ function buildMimeMessage(
 }
 
 /**
- * Send an email via the Gmail API.
- * Returns the Gmail messageId on success, or an error object.
+ * Get a valid access token for the given account.
+ * Checks DB cache first, then refreshes if expired, then falls back to env refresh token.
  */
+export async function getAccessToken(account: 'avi' | 'ratnesh'): Promise<string> {
+  const env = getEnvCredentials(account)
+  const supabase = createAdminClient()
+
+  // Try DB for cached access token + refresh token
+  const { data: row } = await supabase
+    .from('gmail_tokens')
+    .select('refresh_token, access_token, access_token_expires_at')
+    .eq('account', account)
+    .maybeSingle()
+
+  // Use cached access token if still valid (5-min buffer)
+  if (row?.access_token && row.access_token_expires_at) {
+    const expiresAt = new Date(row.access_token_expires_at).getTime()
+    if (expiresAt - Date.now() > 5 * 60 * 1000) {
+      return row.access_token
+    }
+  }
+
+  // Use DB refresh token if available, otherwise env var
+  const refreshToken = row?.refresh_token || env.envRefreshToken
+  if (!refreshToken) {
+    throw new Error(`No refresh token found for ${account}. Re-authorize Gmail at /diary/empanelment/gmail`)
+  }
+
+  // Exchange refresh token for a new access token
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: env.clientId,
+      client_secret: env.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  })
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`Token exchange failed for ${account}: ${errText}`)
+  }
+
+  const data = await res.json()
+
+  if (data.error) {
+    throw new Error(`Token exchange error for ${account}: ${data.error} — ${data.error_description}. Re-authorize at /diary/empanelment/gmail`)
+  }
+
+  const accessToken = data.access_token as string
+  const expiresIn = (data.expires_in as number) || 3600
+  const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+  // Cache the new access token in DB
+  await supabase.from('gmail_tokens').upsert({
+    account,
+    refresh_token: refreshToken,
+    access_token: accessToken,
+    access_token_expires_at: expiresAt,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'account' })
+
+  return accessToken
+}
+
+/**
+ * Save a new refresh token to the DB (called after re-auth).
+ */
+export async function saveRefreshToken(account: 'avi' | 'ratnesh', refreshToken: string): Promise<void> {
+  const supabase = createAdminClient()
+  await supabase.from('gmail_tokens').upsert({
+    account,
+    refresh_token: refreshToken,
+    access_token: null,
+    access_token_expires_at: null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'account' })
+}
+
+/**
+ * Check if a Gmail account is properly authorized.
+ */
+export async function checkGmailAuth(account: 'avi' | 'ratnesh'): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await getAccessToken(account)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 export async function sendGmail(
   account: 'avi' | 'ratnesh',
   to: string,
@@ -112,10 +173,10 @@ export async function sendGmail(
   from?: string
 ): Promise<{ messageId: string } | { error: string }> {
   try {
-    const creds = getCredentials(account)
+    const env = getEnvCredentials(account)
     const accessToken = await getAccessToken(account)
 
-    const fromHeader = from || `${creds.fromName} <${creds.fromEmail}>`
+    const fromHeader = from || `${env.fromName} <${env.fromEmail}>`
     const rawMessage = buildMimeMessage(fromHeader, to, subject, body)
 
     const sendRes = await fetch(
@@ -145,9 +206,6 @@ export async function sendGmail(
   }
 }
 
-/**
- * Send a reply in the same Gmail thread.
- */
 export async function replyGmail(
   account: 'avi' | 'ratnesh',
   to: string,
@@ -157,10 +215,10 @@ export async function replyGmail(
   inReplyToMessageId: string
 ): Promise<{ messageId: string } | { error: string }> {
   try {
-    const creds = getCredentials(account)
+    const env = getEnvCredentials(account)
     const accessToken = await getAccessToken(account)
 
-    const fromHeader = `${creds.fromName} <${creds.fromEmail}>`
+    const fromHeader = `${env.fromName} <${env.fromEmail}>`
     const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`
     const rawMessage = buildMimeMessage(fromHeader, to, replySubject, body, {
       'In-Reply-To': inReplyToMessageId,
@@ -194,9 +252,6 @@ export async function replyGmail(
   }
 }
 
-/**
- * Mark a Gmail message as unread.
- */
 export async function markAsUnread(
   account: 'avi' | 'ratnesh',
   messageId: string,

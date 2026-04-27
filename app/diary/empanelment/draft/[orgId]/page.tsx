@@ -306,6 +306,21 @@ export default function DraftApplicationPage() {
         application_id: application.id,
         status: 'sent',
       })
+
+      // Log the sent email into the thread so it appears immediately
+      if (sendMethod === 'email' && org?.contact_email) {
+        await supabase.from('application_emails').insert({
+          application_id: application.id,
+          direction: 'sent',
+          email_type: 'initial',
+          from_email: 'jainavi.aj@gmail.com',
+          to_email: org.contact_email,
+          subject: subject || application.draft_subject,
+          body: body || application.draft_body,
+          sent_at: sentAt,
+        })
+      }
+
       setMessage({ type: 'success', text: 'Marked as sent.' })
       setShowSendForm(false)
       await loadData()
