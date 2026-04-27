@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: `${process.env.APP_URL}/auth/google/callback`,
+      redirect_uri: `https://advocate-diary-hub.vercel.app/auth/google/callback`,
       grant_type: 'authorization_code',
     }),
   })
