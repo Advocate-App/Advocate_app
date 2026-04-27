@@ -79,10 +79,10 @@ export async function getAccessToken(account: 'avi' | 'ratnesh'): Promise<string
   const env = getEnvCredentials(account)
   const supabase = createAdminClient()
 
-  // Try DB for cached access token + refresh token
+  // Try DB for cached access token + refresh token + client credentials
   const { data: row } = await supabase
     .from('gmail_tokens')
-    .select('refresh_token, access_token, access_token_expires_at')
+    .select('refresh_token, access_token, access_token_expires_at, client_id, client_secret')
     .eq('account', account)
     .maybeSingle()
 
@@ -100,13 +100,17 @@ export async function getAccessToken(account: 'avi' | 'ratnesh'): Promise<string
     throw new Error(`No refresh token found for ${account}. Re-authorize Gmail at /diary/empanelment/gmail`)
   }
 
+  // Use DB client credentials if stored, otherwise fall back to env vars
+  const clientId = row?.client_id || env.clientId
+  const clientSecret = row?.client_secret || env.clientSecret
+
   // Exchange refresh token for a new access token
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: env.clientId,
-      client_secret: env.clientSecret,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
