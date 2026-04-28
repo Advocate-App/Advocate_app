@@ -144,17 +144,9 @@ function slipShortName(name: string): string {
   return parts[0].length <= 2 && parts[1] ? `${parts[0]} ${parts[1]}` : parts[0]
 }
 
-function getTodayIST(): Date {
-  // Always use IST (UTC+5:30) regardless of server timezone
-  const now = new Date()
-  const istMs = now.getTime() + (now.getTimezoneOffset() + 330) * 60 * 1000
-  const ist = new Date(istMs)
-  return new Date(ist.getFullYear(), ist.getMonth(), ist.getDate())
-}
-
 export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const router = useRouter()
-  const [selectedDate, setSelectedDate] = useState<Date>(() => getTodayIST())
+  const [selectedDate, setSelectedDate] = useState<Date>(initialDate)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
   const [slipPrinting, setSlipPrinting] = useState(false)
@@ -309,14 +301,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   function goDay(offset: number) {
     const newDate = offset > 0 ? addDays(selectedDate, offset) : subDays(selectedDate, Math.abs(offset))
     setSelectedDate(newDate)
-    if (isToday(newDate)) router.push('/diary')
-    else router.push(`/diary/date/${toYMD(newDate)}`)
+    router.replace(`/diary/date/${toYMD(newDate)}`, { scroll: false })
   }
 
   function goToDate(d: Date) {
     setSelectedDate(d)
-    if (isToday(d)) router.push('/diary')
-    else router.push(`/diary/date/${toYMD(d)}`)
+    router.replace(`/diary/date/${toYMD(d)}`, { scroll: false })
   }
 
   async function saveStage(hearingId: string, newStage: string) {

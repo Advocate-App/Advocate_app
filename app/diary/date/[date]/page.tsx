@@ -7,13 +7,12 @@ import DiaryView from '../../components/DiaryView'
 export default function DiaryDatePage() {
   const { date } = useParams<{ date: string }>()
 
-  // Parse the YYYY-MM-DD from URL
+  // Parse YYYY-MM-DD from URL as local date (no UTC offset shift)
   let parsedDate: Date
   try {
-    parsedDate = parseISO(date)
-    if (!isValid(parsedDate)) {
-      parsedDate = new Date()
-    }
+    const [y, m, d] = date.split('-').map(Number)
+    parsedDate = new Date(y, m - 1, d)
+    if (!isValid(parsedDate)) parsedDate = new Date()
   } catch {
     parsedDate = new Date()
   }
