@@ -144,9 +144,17 @@ function slipShortName(name: string): string {
   return parts[0].length <= 2 && parts[1] ? `${parts[0]} ${parts[1]}` : parts[0]
 }
 
+function getTodayIST(): Date {
+  // Always use IST (UTC+5:30) regardless of server timezone
+  const now = new Date()
+  const istMs = now.getTime() + (now.getTimezoneOffset() + 330) * 60 * 1000
+  const ist = new Date(istMs)
+  return new Date(ist.getFullYear(), ist.getMonth(), ist.getDate())
+}
+
 export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const router = useRouter()
-  const [selectedDate, setSelectedDate] = useState<Date>(initialDate)
+  const [selectedDate, setSelectedDate] = useState<Date>(() => getTodayIST())
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
   const [slipPrinting, setSlipPrinting] = useState(false)
