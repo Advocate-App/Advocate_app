@@ -319,7 +319,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       await supabase.from('cases').update(updates).eq('id', hearing.case_id)
     }
     setEditingStage(null)
-    fetchHearings()
+    // Optimistic update — no refetch, no scroll jump
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage } : h))
   }
 
   async function saveNextDate(hearingId: string, newDate: string) {
@@ -341,17 +342,20 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       }
     }
     setEditingNextDate(null)
-    fetchHearings()
+    // Optimistic update — no refetch, no scroll jump
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, next_hearing_date: newDate || null } : h))
   }
 
   async function saveComment(hearingId: string) {
     setCommentSaving(true)
     const supabase = createClient()
-    await supabase.from('hearings').update({ outcome_notes: commentText.trim() || null }).eq('id', hearingId)
+    const text = commentText.trim() || null
+    await supabase.from('hearings').update({ outcome_notes: text }).eq('id', hearingId)
     setCommentHearingId(null)
     setCommentText('')
     setCommentSaving(false)
-    fetchHearings()
+    // Optimistic update — no refetch, no scroll jump
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, outcome_notes: text } : h))
   }
 
   function handleSearch(q: string) {
@@ -833,7 +837,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               autoFocus
                               defaultValue={h.next_hearing_date || ''}
                               onBlur={(e) => { if (e.target.value) saveNextDate(h.id, e.target.value); setEditingNextDate(null) }}
-                              onKeyDown={(e) => { if (e.key === 'Escape') setEditingNextDate(null) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
                               className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
                             />
                           ) : (
@@ -973,6 +977,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         type="date"
                         defaultValue={h.next_hearing_date || ''}
                         onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
                         className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                         style={{ minHeight: '44px' }}
                       />
