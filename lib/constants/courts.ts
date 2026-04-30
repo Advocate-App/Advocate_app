@@ -52,6 +52,8 @@ export const DISTRICT_COURTS = [
   { code: 'DCF_DGP',   name: 'District Consumer Forum',          district: 'Dungarpur' },
   { code: 'DCR_DGP',   name: 'District Court',                   district: 'Dungarpur' },
   { code: 'DCR_SGW',   name: 'Sub-Division Court Sagwara',       district: 'Dungarpur' },
+  { code: 'MACT_SGW', name: 'Motor Accident Claims Tribunal (Sagwara)', district: 'Dungarpur' },
+  { code: 'MACT_MAW', name: 'Motor Accident Claims Tribunal (Mawli)',   district: 'Udaipur' },
 
   // ── Rajsamand ─────────────────────────────────────────────────────────────
   { code: 'MACT_RSM',  name: 'Motor Accident Claims Tribunal',  district: 'Rajsamand' },
@@ -175,6 +177,7 @@ export function getCourtShortLabel(code: string): string {
     PCPNDT_UDR: 'PCPNDT',
     // Dungarpur
     MACT_DGP: 'MACT-D',  NI_DGP: 'NI-D',      DCF_DGP: 'DCF-D',   DCR_DGP: 'DC-D',  DCR_SGW: 'Sagwara',
+    MACT_SGW: 'Mact-Sag', MACT_MAW: 'Mact-Maw',
     // Rajsamand
     MACT_RSM: 'MACT-R',  NI_RSM: 'NI-R',      DCF_RSM: 'DCF-R',   DCR_RSM: 'DC-R',
     // Salumber
@@ -208,7 +211,7 @@ export function getCourtSortPriority(code: string): number {
     RCT_UDR: 39, SAMB_AYU: 40, NGNM_UDR: 41,
     SDMB_UDR: 42, SDMG_UDR: 43, RAA_UDR: 44, PCPNDT_UDR: 45,
     jodhpur: 50, jaipur: 51,
-    MACT_DGP: 60, NI_DGP: 61, DCF_DGP: 62, DCR_DGP: 63, DCR_SGW: 64,
+    MACT_DGP: 60, NI_DGP: 61, DCF_DGP: 62, DCR_DGP: 63, DCR_SGW: 64, MACT_SGW: 65, MACT_MAW: 66,
     MACT_RSM: 70, NI_RSM: 71, DCF_RSM: 72, DCR_RSM: 73,
     MACT_SLM: 80, NI_SLM: 81, DCF_SLM: 82,
     MACT_BNW: 90, NI_BNW: 91, DCF_BNW: 92, DCR_BNW: 93,
