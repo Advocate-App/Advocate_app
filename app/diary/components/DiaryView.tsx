@@ -931,15 +931,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         <tr key={`cmt-${h.id}`}>
                           <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
                             {commentHearingId === h.id ? (
-                              <div className="flex items-center gap-2">
-                                <input
+                              <div className="flex items-start gap-2">
+                                <textarea
                                   autoFocus
-                                  type="text"
+                                  rows={2}
                                   placeholder="Add a comment or note for this hearing…"
                                   value={commentText}
                                   onChange={(e) => setCommentText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                  className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                  className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
                                 />
                                 <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                                   {commentSaving ? '…' : 'Save'}
@@ -951,7 +951,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             ) : (
                               <button
                                 onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                                className="text-xs text-blue-700 text-left w-full hover:text-blue-900"
+                                className="text-xs text-blue-700 text-left w-full hover:text-blue-900 whitespace-pre-wrap"
                               >
                                 💬 {h.outcome_notes}
                               </button>
