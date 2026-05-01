@@ -108,6 +108,11 @@ interface SearchResult {
   party_defendant?: string
 }
 
+const FINAL_STAGES = new Set(['Disposed', 'For Orders', 'Judgment', 'Judgment Reserved'])
+function isFinalStage(stage: string | null): boolean {
+  return !!stage && FINAL_STAGES.has(stage)
+}
+
 function rowBorderColor(hearing: HearingRow): string {
   if (hearing.happened) return '#22c55e'
   const hDate = parseISO(hearing.hearing_date)
@@ -863,9 +868,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           )}
                         </td>
 
-                        {/* Next Date */}
+                        {/* Next Date — hidden when stage is final */}
                         <td className="border border-gray-200 px-2 py-2 text-center">
-                          {editingNextDate === h.id ? (
+                          {isFinalStage(h.stage_on_date) ? (
+                            <span className="text-xs text-gray-300 italic">—</span>
+                          ) : editingNextDate === h.id ? (
                             <input
                               type="date"
                               autoFocus
@@ -1038,14 +1045,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Next Date</label>
-                      <input
-                        type="date"
-                        defaultValue={h.next_hearing_date || ''}
-                        onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                        style={{ minHeight: '44px' }}
-                      />
+                      {isFinalStage(h.stage_on_date) ? (
+                        <div className="w-full px-3 py-2.5 border border-gray-100 rounded-lg text-sm text-gray-300 bg-gray-50" style={{ minHeight: '44px' }}>—</div>
+                      ) : (
+                        <input
+                          type="date"
+                          defaultValue={h.next_hearing_date || ''}
+                          onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                          style={{ minHeight: '44px' }}
+                        />
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
