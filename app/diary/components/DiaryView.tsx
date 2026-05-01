@@ -157,8 +157,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [slipPrinting, setSlipPrinting] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
-  const [loading, setLoading] = useState(false)
-  const [advocateLoading, setAdvocateLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
 
   // Month hearing dates for navigator
   const [monthHearingDates, setMonthHearingDates] = useState<Set<string>>(new Set())
@@ -212,7 +211,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       try {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        if (!user) { setLoading(false); return }
         const { data } = await supabase
           .from('advocates')
           .select('id, full_name')
@@ -240,8 +239,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         }
       } catch (err) {
         console.error('loadAdvocate error:', err)
-      } finally {
-        setAdvocateLoading(false)
+        setLoading(false)
       }
     }
     loadAdvocate()
@@ -740,7 +738,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       )}
 
       {/* ═══ Main Table ═══ */}
-      {(advocateLoading || loading) ? (
+      {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
         </div>
