@@ -157,7 +157,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [slipPrinting, setSlipPrinting] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [advocateLoading, setAdvocateLoading] = useState(true)
 
   // Month hearing dates for navigator
   const [monthHearingDates, setMonthHearingDates] = useState<Set<string>>(new Set())
@@ -208,35 +209,39 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Load advocate
   useEffect(() => {
     async function loadAdvocate() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data } = await supabase
-        .from('advocates')
-        .select('id, full_name')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single()
-      if (data) {
-        setAdvocateId(data.id)
-        setAdvocateName(data.full_name || '')
-        // Load custom court short labels
-        const { data: cc } = await supabase
-          .from('custom_courts')
-          .select('id, name, short_name')
-          .eq('advocate_id', data.id)
-        if (cc) {
-          const map: Record<string, string> = {}
-          for (const c of cc as CustomCourtRow[]) {
-            if (c.builtin_code) {
-              // Override for a built-in court
-              map[c.builtin_code] = c.short_name || c.name
-            } else {
-              map[`CUSTOM_${c.id}`] = c.short_name || c.name
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data } = await supabase
+          .from('advocates')
+          .select('id, full_name')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single()
+        if (data) {
+          setAdvocateId(data.id)
+          setAdvocateName(data.full_name || '')
+          const { data: cc } = await supabase
+            .from('custom_courts')
+            .select('id, name, short_name')
+            .eq('advocate_id', data.id)
+          if (cc) {
+            const map: Record<string, string> = {}
+            for (const c of cc as CustomCourtRow[]) {
+              if (c.builtin_code) {
+                map[c.builtin_code] = c.short_name || c.name
+              } else {
+                map[`CUSTOM_${c.id}`] = c.short_name || c.name
+              }
             }
+            setCustomCourtMap(map)
           }
-          setCustomCourtMap(map)
         }
+      } catch (err) {
+        console.error('loadAdvocate error:', err)
+      } finally {
+        setAdvocateLoading(false)
       }
     }
     loadAdvocate()
@@ -735,7 +740,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       )}
 
       {/* ═══ Main Table ═══ */}
-      {loading ? (
+      {(advocateLoading || loading) ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
         </div>
