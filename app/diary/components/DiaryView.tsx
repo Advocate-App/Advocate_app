@@ -245,25 +245,32 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Fetch month hearing dates for navigator — only this advocate's hearings
   const fetchMonthDates = useCallback(async () => {
     if (!advocateId) return
-    const supabase = createClient()
-    const start = toYMD(startOfMonth(selectedDate))
-    const end = toYMD(endOfMonth(selectedDate))
-    // First get this advocate's case IDs, then filter hearings by those
-    const { data: myCases } = await supabase
-      .from('cases')
-      .select('id')
-      .eq('advocate_id', advocateId)
-    if (!myCases) return
-    const myCaseIds = myCases.map((c: { id: string }) => c.id)
-    if (myCaseIds.length === 0) return
-    const { data } = await supabase
-      .from('hearings')
-      .select('hearing_date')
-      .in('case_id', myCaseIds)
-      .gte('hearing_date', start)
-      .lte('hearing_date', end)
-    if (data) {
-      setMonthHearingDates(new Set(data.map((h: { hearing_date: string }) => h.hearing_date)))
+    try {
+      const supabase = createClient()
+      const start = toYMD(startOfMonth(selectedDate))
+      const end = toYMD(endOfMonth(selectedDate))
+      const { data: myCases } = await supabase
+        .from('cases')
+        .select('id')
+        .eq('advocate_id', advocateId)
+      if (!myCases || myCases.length === 0) return
+      const myCaseIds = myCases.map((c: { id: string }) => c.id)
+      // PostgREST URL limit — batch if needed
+      const BATCH = 200
+      const dates = new Set<string>()
+      for (let i = 0; i < myCaseIds.length; i += BATCH) {
+        const batch = myCaseIds.slice(i, i + BATCH)
+        const { data } = await supabase
+          .from('hearings')
+          .select('hearing_date')
+          .in('case_id', batch)
+          .gte('hearing_date', start)
+          .lte('hearing_date', end)
+        if (data) data.forEach((h: { hearing_date: string }) => dates.add(h.hearing_date))
+      }
+      setMonthHearingDates(dates)
+    } catch (err) {
+      console.error('fetchMonthDates error:', err)
     }
   }, [advocateId, selectedDate])
 
@@ -271,45 +278,50 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const fetchHearings = useCallback(async () => {
     if (!advocateId) return
     setLoading(true)
-    const supabase = createClient()
-    const dateStr = toYMD(selectedDate)
+    try {
+      const supabase = createClient()
+      const dateStr = toYMD(selectedDate)
 
-    const { data: hearingRows, error: hErr } = await supabase
-      .from('hearings')
-      .select('*')
-      .eq('hearing_date', dateStr)
-      .order('created_at', { ascending: true })
+      const { data: hearingRows, error: hErr } = await supabase
+        .from('hearings')
+        .select('*')
+        .eq('hearing_date', dateStr)
+        .order('created_at', { ascending: true })
 
-    if (hErr || !hearingRows || hearingRows.length === 0) {
+      if (hErr || !hearingRows || hearingRows.length === 0) {
+        setHearings([])
+        setLoading(false)
+        return
+      }
+
+      const caseIds = [...new Set(hearingRows.map((h: HearingRow) => h.case_id))]
+      const { data: cases } = await supabase
+        .from('cases')
+        .select('id, advocate_id, court_level, court_name, court_code, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, our_role, opposite_advocate, case_stage, status, ecourts_cnr, hc_bench')
+        .in('id', caseIds)
+
+      if (!cases) { setHearings([]); setLoading(false); return }
+
+      const caseMap = new Map<string, CaseRecord>()
+      for (const c of cases) caseMap.set(c.id, c as CaseRecord)
+
+      const combined: HearingWithCase[] = []
+      for (const h of hearingRows as HearingRow[]) {
+        const c = caseMap.get(h.case_id)
+        if (c && c.advocate_id === advocateId) combined.push({ ...h, caseData: c })
+      }
+
+      combined.sort((a, b) =>
+        getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
+      )
+
+      setHearings(combined)
+    } catch (err) {
+      console.error('fetchHearings error:', err)
       setHearings([])
+    } finally {
       setLoading(false)
-      return
     }
-
-    const caseIds = [...new Set(hearingRows.map((h: HearingRow) => h.case_id))]
-    const { data: cases } = await supabase
-      .from('cases')
-      .select('id, advocate_id, court_level, court_name, court_code, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, our_role, opposite_advocate, case_stage, status, ecourts_cnr, hc_bench')
-      .in('id', caseIds)
-
-    if (!cases) { setHearings([]); setLoading(false); return }
-
-    const caseMap = new Map<string, CaseRecord>()
-    for (const c of cases) caseMap.set(c.id, c as CaseRecord)
-
-    const combined: HearingWithCase[] = []
-    for (const h of hearingRows as HearingRow[]) {
-      const c = caseMap.get(h.case_id)
-      if (c && c.advocate_id === advocateId) combined.push({ ...h, caseData: c })
-    }
-
-    // Sort: MACT-1 → MACT-2 → Udaipur courts → other cities
-    combined.sort((a, b) =>
-      getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
-    )
-
-    setHearings(combined)
-    setLoading(false)
   }, [advocateId, selectedDate])
 
   useEffect(() => {
