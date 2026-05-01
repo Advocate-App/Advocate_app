@@ -926,8 +926,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
                       </tr>
 
-                      {/* Inline comment always visible if exists, or open for editing */}
-                      {(h.outcome_notes || commentHearingId === h.id) && (
+                      {/* Inline comment always visible if exists, or open for editing (hidden for final-stage — handled by Final Action row) */}
+                      {!isFinalStage(h.stage_on_date) && (h.outcome_notes || commentHearingId === h.id) && (
                         <tr key={`cmt-${h.id}`}>
                           <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
                             {commentHearingId === h.id ? (
@@ -955,6 +955,65 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               >
                                 💬 {h.outcome_notes}
                               </button>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Final Action row — shown for Disposed / For Orders / Judgment */}
+                      {isFinalStage(h.stage_on_date) && (
+                        <tr key={`final-${h.id}`}>
+                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-emerald-50/60">
+                            {commentHearingId === h.id ? (
+                              <div className="flex items-start gap-2">
+                                <textarea
+                                  autoFocus
+                                  rows={2}
+                                  placeholder="Describe the next action or outcome…"
+                                  value={commentText}
+                                  onChange={(e) => setCommentText(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                  className="flex-1 px-2 py-1 border border-emerald-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-400 resize-none"
+                                />
+                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">
+                                  {commentSaving ? '…' : 'Save'}
+                                </button>
+                                <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : h.outcome_notes ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-semibold text-emerald-700">Action:</span>
+                                <span className="text-xs text-emerald-800 font-medium whitespace-pre-wrap">{h.outcome_notes}</span>
+                                <button
+                                  onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                                  className="text-[10px] text-emerald-500 hover:text-emerald-700 underline"
+                                >Edit</button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-semibold text-emerald-700">What next?</span>
+                                {['Appeal Filed', 'Execution', 'Got Order Copy', 'Do Nothing'].map(action => (
+                                  <button
+                                    key={action}
+                                    onClick={async () => {
+                                      const supabase = createClient()
+                                      await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
+                                      setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
+                                    }}
+                                    className="text-xs px-2 py-0.5 rounded-full border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                                  >
+                                    {action}
+                                  </button>
+                                ))}
+                                <button
+                                  onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
+                                  className="text-xs px-2 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-colors"
+                                >
+                                  Custom…
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
