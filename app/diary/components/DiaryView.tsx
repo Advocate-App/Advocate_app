@@ -768,6 +768,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 2</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-28">Stage</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20">Next</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-36 print:hidden">Action</th>
                   <th className="border border-gray-300 px-2 py-2 w-20 print:hidden"></th>
                 </tr>
               </thead>
@@ -907,6 +908,54 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           )}
                         </td>
 
+                        {/* Final Action column */}
+                        <td className="border border-gray-200 px-2 py-2 print:hidden">
+                          {isFinalStage(h.stage_on_date) && (
+                            commentHearingId === h.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  placeholder="Type action…"
+                                  value={commentText}
+                                  onChange={(e) => setCommentText(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                  className="flex-1 min-w-0 px-1.5 py-0.5 border border-emerald-300 rounded text-xs bg-white text-gray-900 focus:outline-none"
+                                />
+                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-emerald-600 disabled:opacity-50">✓</button>
+                              </div>
+                            ) : h.outcome_notes ? (
+                              <button
+                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                                className="text-xs text-emerald-700 font-medium text-left w-full hover:text-emerald-900 truncate block"
+                                title={h.outcome_notes}
+                              >
+                                ✓ {h.outcome_notes}
+                              </button>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {['Appeal', 'Execution', 'Order Copy', 'Done'].map(action => (
+                                  <button
+                                    key={action}
+                                    onClick={async () => {
+                                      const supabase = createClient()
+                                      await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
+                                      setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
+                                    }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
+                                  >
+                                    {action}
+                                  </button>
+                                ))}
+                                <button
+                                  onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
+                                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100"
+                                >+</button>
+                              </div>
+                            )
+                          )}
+                        </td>
+
                         {/* Actions */}
                         <td className="border border-gray-200 px-1 py-2 print:hidden">
                           <div className="flex items-center gap-0.5 justify-center">
@@ -926,10 +975,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
                       </tr>
 
-                      {/* Inline comment always visible if exists, or open for editing (hidden for final-stage — handled by Final Action row) */}
+                      {/* Inline comment always visible if exists, or open for editing */}
                       {!isFinalStage(h.stage_on_date) && (h.outcome_notes || commentHearingId === h.id) && (
                         <tr key={`cmt-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
+                          <td colSpan={9} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
                             {commentHearingId === h.id ? (
                               <div className="flex items-start gap-2">
                                 <textarea
@@ -960,69 +1009,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </tr>
                       )}
 
-                      {/* Final Action row — shown for Disposed / For Orders / Judgment */}
-                      {isFinalStage(h.stage_on_date) && (
-                        <tr key={`final-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-emerald-50/60">
-                            {commentHearingId === h.id ? (
-                              <div className="flex items-start gap-2">
-                                <textarea
-                                  autoFocus
-                                  rows={2}
-                                  placeholder="Describe the next action or outcome…"
-                                  value={commentText}
-                                  onChange={(e) => setCommentText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                  className="flex-1 px-2 py-1 border border-emerald-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-emerald-400 resize-none"
-                                />
-                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">
-                                  {commentSaving ? '…' : 'Save'}
-                                </button>
-                                <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : h.outcome_notes ? (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-semibold text-emerald-700">Action:</span>
-                                <span className="text-xs text-emerald-800 font-medium whitespace-pre-wrap">{h.outcome_notes}</span>
-                                <button
-                                  onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                                  className="text-[10px] text-emerald-500 hover:text-emerald-700 underline"
-                                >Edit</button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-semibold text-emerald-700">What next?</span>
-                                {['Appeal Filed', 'Execution', 'Got Order Copy', 'Do Nothing'].map(action => (
-                                  <button
-                                    key={action}
-                                    onClick={async () => {
-                                      const supabase = createClient()
-                                      await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
-                                      setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
-                                    }}
-                                    className="text-xs px-2 py-0.5 rounded-full border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                                  >
-                                    {action}
-                                  </button>
-                                ))}
-                                <button
-                                  onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
-                                  className="text-xs px-2 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100 transition-colors"
-                                >
-                                  Custom…
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-
                       {/* Case history row */}
                       {expandedCaseId === h.case_id && (
                         <tr key={`hist-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-2 print:hidden bg-gray-50">
+                          <td colSpan={9} className="border border-gray-200 px-3 py-2 print:hidden bg-gray-50">
                             <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Case History</div>
                             {caseHistory.length === 0 ? (
                               <p className="text-xs text-gray-400">No history found.</p>
