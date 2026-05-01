@@ -1123,21 +1123,79 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium ${h.outcome_notes ? 'text-blue-700 bg-blue-100' : 'text-gray-600 bg-gray-50 hover:bg-gray-100'}`}
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      {h.outcome_notes ? 'View note' : 'Add note'}
-                    </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {!isFinalStage(h.stage_on_date) && (
+                      <button
+                        onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                        className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium ${h.outcome_notes ? 'text-blue-700 bg-blue-100' : 'text-gray-600 bg-gray-50 hover:bg-gray-100'}`}
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        {h.outcome_notes ? 'View note' : 'Add note'}
+                      </button>
+                    )}
                     {ecLink && (
                       <a href={ecLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">
                         <ExternalLink className="w-4 h-4" /> eCourts
                       </a>
                     )}
                   </div>
-                  {commentHearingId === h.id && (
+
+                  {/* Final Action — mobile card */}
+                  {isFinalStage(h.stage_on_date) && (
+                    <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <div className="text-xs font-semibold text-emerald-700 mb-2">What next?</div>
+                      {h.outcome_notes ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-emerald-800 font-medium flex-1">✓ {h.outcome_notes}</span>
+                          <button
+                            onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                            className="text-xs text-emerald-500 underline"
+                          >Edit</button>
+                        </div>
+                      ) : commentHearingId === h.id ? null : (
+                        <div className="flex flex-wrap gap-2">
+                          {['Appeal Filed', 'Execution', 'Got Order Copy', 'Do Nothing'].map(action => (
+                            <button
+                              key={action}
+                              onClick={async () => {
+                                const supabase = createClient()
+                                await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
+                                setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
+                              }}
+                              className="px-3 py-1.5 rounded-lg border border-emerald-300 text-sm text-emerald-700 bg-white hover:bg-emerald-100 transition-colors"
+                            >
+                              {action}
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
+                            className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm text-gray-500 bg-white hover:bg-gray-100"
+                          >Custom…</button>
+                        </div>
+                      )}
+                      {commentHearingId === h.id && (
+                        <div>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={commentText}
+                            onChange={(e) => setCommentText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                            placeholder="Describe action…"
+                            className="w-full px-3 py-2 border border-emerald-300 rounded text-sm bg-white text-gray-900 mb-2"
+                          />
+                          <div className="flex gap-2">
+                            <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-emerald-600 disabled:opacity-50">
+                              {commentSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200">Cancel</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {commentHearingId === h.id && !isFinalStage(h.stage_on_date) && (
                     <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                       <input
                         autoFocus
