@@ -157,6 +157,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Month hearing dates for navigator
   const [monthHearingDates, setMonthHearingDates] = useState<Set<string>>(new Set())
 
+  // Case history panel
+  const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null)
+  const [caseHistory, setCaseHistory] = useState<{ id: string; hearing_date: string; stage_on_date: string | null; outcome_notes: string | null }[]>([])
+
   // Inline editing
   const [editingStage, setEditingStage] = useState<string | null>(null)
   const [editingNextDate, setEditingNextDate] = useState<string | null>(null)
@@ -233,15 +237,24 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     loadAdvocate()
   }, [])
 
-  // Fetch month hearing dates for navigator
+  // Fetch month hearing dates for navigator — only this advocate's hearings
   const fetchMonthDates = useCallback(async () => {
     if (!advocateId) return
     const supabase = createClient()
     const start = toYMD(startOfMonth(selectedDate))
     const end = toYMD(endOfMonth(selectedDate))
+    // First get this advocate's case IDs, then filter hearings by those
+    const { data: myCases } = await supabase
+      .from('cases')
+      .select('id')
+      .eq('advocate_id', advocateId)
+    if (!myCases) return
+    const myCaseIds = myCases.map((c: { id: string }) => c.id)
+    if (myCaseIds.length === 0) return
     const { data } = await supabase
       .from('hearings')
-      .select('hearing_date, case_id')
+      .select('hearing_date')
+      .in('case_id', myCaseIds)
       .gte('hearing_date', start)
       .lte('hearing_date', end)
     if (data) {
@@ -429,6 +442,21 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchResults([])
     setSelectedCase(null)
     setShowAddModal(true)
+  }
+
+  async function toggleHistory(caseId: string) {
+    if (expandedCaseId === caseId) {
+      setExpandedCaseId(null)
+      return
+    }
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('hearings')
+      .select('id, hearing_date, stage_on_date, outcome_notes')
+      .eq('case_id', caseId)
+      .order('hearing_date', { ascending: false })
+    setCaseHistory(data || [])
+    setExpandedCaseId(caseId)
   }
 
   function courtShortLabel(courtCode: string, fallback: string): string {
@@ -735,8 +763,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     <>
                       <tr
                         key={h.id}
-                        className="hover:bg-gray-50/50 transition-colors"
+                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
                         style={{ borderLeft: `4px solid ${borderColor}` }}
+                        onClick={(e) => {
+                          // Don't expand if clicking interactive elements
+                          const tag = (e.target as HTMLElement).tagName
+                          if (['SELECT','INPUT','BUTTON','A'].includes(tag)) return
+                          toggleHistory(h.case_id)
+                        }}
                       >
                         {/* Pre Date */}
                         <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm text-gray-600">
@@ -870,27 +904,58 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
                       </tr>
 
-                      {/* Comment row */}
-                      {commentHearingId === h.id && (
+                      {/* Inline comment always visible if exists, or open for editing */}
+                      {(h.outcome_notes || commentHearingId === h.id) && (
                         <tr key={`cmt-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-2 print:hidden bg-blue-50/40">
-                            <div className="flex items-center gap-2">
-                              <input
-                                autoFocus
-                                type="text"
-                                placeholder="Add a comment or note for this hearing…"
-                                value={commentText}
-                                onChange={(e) => setCommentText(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                className="flex-1 px-3 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                              />
-                              <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-3 py-1.5 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                                {commentSaving ? 'Saving…' : 'Save'}
+                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
+                            {commentHearingId === h.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  placeholder="Add a comment or note for this hearing…"
+                                  value={commentText}
+                                  onChange={(e) => setCommentText(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                  className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                />
+                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                                  {commentSaving ? '…' : 'Save'}
+                                </button>
+                                <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                                className="text-xs text-blue-700 text-left w-full hover:text-blue-900"
+                              >
+                                💬 {h.outcome_notes}
                               </button>
-                              <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-3 py-1.5 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50">
-                                Cancel
-                              </button>
-                            </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Case history row */}
+                      {expandedCaseId === h.case_id && (
+                        <tr key={`hist-${h.id}`}>
+                          <td colSpan={8} className="border border-gray-200 px-3 py-2 print:hidden bg-gray-50">
+                            <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Case History</div>
+                            {caseHistory.length === 0 ? (
+                              <p className="text-xs text-gray-400">No history found.</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {caseHistory.map(ch => (
+                                  <span key={ch.id} className="text-xs text-gray-600 flex items-center gap-1">
+                                    <span className="font-mono text-gray-500">{formatDD_MM(ch.hearing_date)}</span>
+                                    {ch.stage_on_date && <span className="text-gray-800">— {ch.stage_on_date}</span>}
+                                    {ch.outcome_notes && <span className="text-blue-600 italic">({ch.outcome_notes})</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}
