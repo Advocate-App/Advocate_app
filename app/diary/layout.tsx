@@ -18,12 +18,14 @@ import {
   Building2,
   Users,
   Clock,
+  CheckSquare,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
   { href: '/diary/pending', label: 'Pending Dates', icon: Clock },
   { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
+  { href: '/diary/closed', label: 'Closed Cases', icon: CheckSquare },
   { href: '/diary/search', label: 'All Cases', icon: Briefcase },
   { href: '/diary/courts', label: 'My Courts', icon: Building2 },
   { href: '/diary/clients', label: 'My Clients', icon: Users },
