@@ -25,6 +25,9 @@ import {
   Loader2,
   Calendar,
   X,
+  Check,
+  ListChecks,
+  BookOpen,
 } from 'lucide-react'
 
 // ───────────────────── Types ─────────────────────
@@ -53,6 +56,23 @@ interface CaseRecord {
   notes: string | null
   created_at: string
   updated_at: string
+  // ── Case tracking ──
+  payment_received: boolean
+  is_company_case: boolean
+  documents_received: boolean
+  bills_generated: boolean
+  order_passed: boolean
+  order_sent_to_company: boolean
+  order_sent_date: string | null
+  appeal_filed: boolean
+  case_story: string | null
+}
+
+interface ImportantPoint {
+  id: string
+  case_id: string
+  point_text: string
+  created_at: string
 }
 
 interface Hearing {
@@ -82,10 +102,11 @@ interface CaseDocument {
   notes: string | null
 }
 
-type TabKey = 'overview' | 'hearings' | 'documents' | 'ecourts'
+type TabKey = 'overview' | 'tracking' | 'hearings' | 'documents' | 'ecourts'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
+  { key: 'tracking', label: 'Tracking' },
   { key: 'hearings', label: 'Hearings' },
   { key: 'documents', label: 'Documents' },
   { key: 'ecourts', label: 'eCourts' },
@@ -174,6 +195,19 @@ export default function CaseDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Tracking state
+  const [trackingSaving, setTrackingSaving] = useState<string | null>(null) // which field is saving
+  const [storyDraft, setStoryDraft] = useState('')
+  const [storyDirty, setStoryDirty] = useState(false)
+  const [storySaving, setStorySaving] = useState(false)
+  const [orderDateDraft, setOrderDateDraft] = useState('')
+
+  const [importantPoints, setImportantPoints] = useState<ImportantPoint[]>([])
+  const [pointsLoading, setPointsLoading] = useState(false)
+  const [newPointText, setNewPointText] = useState('')
+  const [addingPoint, setAddingPoint] = useState(false)
+  const [deletePointId, setDeletePointId] = useState<string | null>(null)
+
   // eCourts state
   const [cnrInput, setCnrInput] = useState('')
   const [cnrSaving, setCnrSaving] = useState(false)
@@ -209,7 +243,10 @@ export default function CaseDetailPage() {
         .single()
 
       if (error || !c) { setNotFound(true); setLoading(false); return }
-      setCaseData(c as CaseRecord)
+      const rec = c as CaseRecord
+      setCaseData(rec)
+      setStoryDraft(rec.case_story || '')
+      setOrderDateDraft(rec.order_sent_date || '')
       setLoading(false)
     }
     if (id) loadCase()
@@ -243,11 +280,26 @@ export default function CaseDetailPage() {
     setDocsLoading(false)
   }, [id])
 
+  // ───── Load important points ─────
+  const loadImportantPoints = useCallback(async () => {
+    if (!id) return
+    setPointsLoading(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('case_important_points')
+      .select('*')
+      .eq('case_id', id)
+      .order('created_at', { ascending: false })
+    setImportantPoints((data as ImportantPoint[]) || [])
+    setPointsLoading(false)
+  }, [id])
+
   // Fetch tab-specific data on tab switch
   useEffect(() => {
     if (activeTab === 'hearings') loadHearings()
     if (activeTab === 'documents') loadDocuments()
-  }, [activeTab, loadHearings, loadDocuments])
+    if (activeTab === 'tracking') loadImportantPoints()
+  }, [activeTab, loadHearings, loadDocuments, loadImportantPoints])
 
   // ───── Hearing CRUD ─────
   function resetHearingForm() {
@@ -406,6 +458,73 @@ export default function CaseDetailPage() {
     const supabase = createClient()
     await supabase.from('cases').delete().eq('id', id)
     router.push('/diary/search')
+  }
+
+  // ───── Tracking: toggle a boolean field ─────
+  async function toggleCaseField(field: keyof CaseRecord, value: boolean) {
+    if (!caseData) return
+    setTrackingSaving(field)
+    const supabase = createClient()
+    const patch: Record<string, boolean> = { [field]: value }
+    // If turning off "Order Passed", also clear "Order Sent to Company" so state stays consistent
+    if (field === 'order_passed' && !value) patch.order_sent_to_company = false
+    // If turning off "Company Case", also clear "Documents Received"
+    if (field === 'is_company_case' && !value) patch.documents_received = false
+    const { error } = await supabase.from('cases').update(patch).eq('id', id)
+    if (!error) setCaseData({ ...caseData, ...patch })
+    setTrackingSaving(null)
+  }
+
+  // ───── Tracking: save order sent date ─────
+  async function saveOrderDate(dateVal: string) {
+    if (!caseData) return
+    setTrackingSaving('order_sent_date')
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('cases')
+      .update({ order_sent_date: dateVal || null })
+      .eq('id', id)
+    if (!error) setCaseData({ ...caseData, order_sent_date: dateVal || null })
+    setTrackingSaving(null)
+  }
+
+  // ───── Tracking: save case story ─────
+  async function saveStory() {
+    if (!caseData) return
+    setStorySaving(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('cases')
+      .update({ case_story: storyDraft.trim() || null })
+      .eq('id', id)
+    if (!error) {
+      setCaseData({ ...caseData, case_story: storyDraft.trim() || null })
+      setStoryDirty(false)
+    }
+    setStorySaving(false)
+  }
+
+  // ───── Tracking: important points CRUD ─────
+  async function addImportantPoint(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newPointText.trim() || !id) return
+    setAddingPoint(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('case_important_points')
+      .insert({ case_id: id, point_text: newPointText.trim() })
+    if (!error) {
+      setNewPointText('')
+      loadImportantPoints()
+    }
+    setAddingPoint(false)
+  }
+
+  async function deleteImportantPoint(pointId: string) {
+    const supabase = createClient()
+    await supabase.from('case_important_points').delete().eq('id', pointId)
+    setDeletePointId(null)
+    loadImportantPoints()
   }
 
   // ───── eCourts: save CNR ─────
@@ -677,6 +796,192 @@ export default function CaseDetailPage() {
                 )}
               </div>
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ======== TRACKING ======== */}
+      {activeTab === 'tracking' && (
+        <div className="space-y-6">
+          {/* Case Progress */}
+          <section className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Case Tracking
+            </h3>
+            <div className="divide-y divide-gray-100">
+              <TrackingToggle
+                label="Payment Received"
+                checked={caseData.payment_received}
+                saving={trackingSaving === 'payment_received'}
+                onChange={(v) => toggleCaseField('payment_received', v)}
+              />
+              <TrackingToggle
+                label="Company Case"
+                checked={caseData.is_company_case}
+                saving={trackingSaving === 'is_company_case'}
+                onChange={(v) => toggleCaseField('is_company_case', v)}
+              />
+              {caseData.is_company_case && (
+                <div className="pl-4 border-l-2" style={{ borderColor: '#dbeafe' }}>
+                  <TrackingToggle
+                    label="Documents Received (from petitioner's advocate)"
+                    checked={caseData.documents_received}
+                    saving={trackingSaving === 'documents_received'}
+                    onChange={(v) => toggleCaseField('documents_received', v)}
+                  />
+                </div>
+              )}
+              <TrackingToggle
+                label="Bills Generated"
+                checked={caseData.bills_generated}
+                saving={trackingSaving === 'bills_generated'}
+                onChange={(v) => toggleCaseField('bills_generated', v)}
+              />
+              <TrackingToggle
+                label="Order Passed"
+                checked={caseData.order_passed}
+                saving={trackingSaving === 'order_passed'}
+                onChange={(v) => toggleCaseField('order_passed', v)}
+              />
+              {caseData.order_passed && (
+                <div className="pl-4 border-l-2 py-3" style={{ borderColor: '#dbeafe' }}>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <span className="text-sm text-gray-700">Order Sent to Company</span>
+                    <span className="flex items-center gap-2">
+                      {trackingSaving === 'order_sent_to_company' && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleCaseField('order_sent_to_company', !caseData.order_sent_to_company)}
+                        className="relative w-11 h-6 rounded-full transition-colors"
+                        style={{ background: caseData.order_sent_to_company ? '#1e3a5f' : '#e5e7eb' }}
+                      >
+                        <span
+                          className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform flex items-center justify-center"
+                          style={{ transform: caseData.order_sent_to_company ? 'translateX(20px)' : 'translateX(0)' }}
+                        >
+                          {caseData.order_sent_to_company && <Check className="w-3 h-3" style={{ color: '#1e3a5f' }} />}
+                        </span>
+                      </button>
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Date Sent</label>
+                    <input
+                      type="date"
+                      value={orderDateDraft}
+                      onChange={(e) => { setOrderDateDraft(e.target.value); saveOrderDate(e.target.value) }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                    />
+                  </div>
+                </div>
+              )}
+              <TrackingToggle
+                label="Appeal Filed"
+                checked={caseData.appeal_filed}
+                saving={trackingSaving === 'appeal_filed'}
+                onChange={(v) => toggleCaseField('appeal_filed', v)}
+              />
+            </div>
+          </section>
+
+          {/* Short Story */}
+          <section className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <BookOpen className="w-4 h-4" /> Case Story
+              </h3>
+              {storyDirty && (
+                <button
+                  onClick={saveStory}
+                  disabled={storySaving}
+                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  {storySaving ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </div>
+            <textarea
+              value={storyDraft}
+              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
+              onBlur={() => { if (storyDirty) saveStory() }}
+              rows={6}
+              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+            />
+          </section>
+
+          {/* Important Points */}
+          <section className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+              <ListChecks className="w-4 h-4" /> Important Points
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Your arguments and supporting points for this case — add them one at a time as they come to you.
+            </p>
+
+            <form onSubmit={addImportantPoint} className="flex flex-col sm:flex-row gap-3 mb-5">
+              <input
+                type="text"
+                value={newPointText}
+                onChange={(e) => setNewPointText(e.target.value)}
+                placeholder="Add a point…"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+              />
+              <button
+                type="submit"
+                disabled={addingPoint || !newPointText.trim()}
+                className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
+                style={{ background: '#1e3a5f' }}
+              >
+                <Plus className="w-4 h-4" /> Add
+              </button>
+            </form>
+
+            {pointsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              </div>
+            ) : importantPoints.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No points added yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {importantPoints.map((p) => (
+                  <div key={p.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-lg p-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{p.point_text}</p>
+                      <p className="text-xs text-gray-400 mt-1">{formatDate(p.created_at)}</p>
+                    </div>
+                    {deletePointId === p.id ? (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => deleteImportantPoint(p.id)}
+                          className="px-2 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeletePointId(null)}
+                          className="px-2 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeletePointId(p.id)}
+                        className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -1161,6 +1466,40 @@ function Field({ label, value }: { label: string; value: string | null | undefin
     <div>
       <span className="block text-xs text-gray-500 mb-0.5">{label}</span>
       <span className="text-sm text-gray-800">{value || '--'}</span>
+    </div>
+  )
+}
+
+// ───── Reusable tracking toggle switch ─────
+function TrackingToggle({
+  label, checked, saving, onChange,
+}: {
+  label: string
+  checked: boolean
+  saving: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-3">
+      <span className="text-sm text-gray-700">{label}</span>
+      <span className="flex items-center gap-2 shrink-0">
+        {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          onClick={() => onChange(!checked)}
+          className="relative w-11 h-6 rounded-full transition-colors"
+          style={{ background: checked ? '#1e3a5f' : '#e5e7eb' }}
+        >
+          <span
+            className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform flex items-center justify-center"
+            style={{ transform: checked ? 'translateX(20px)' : 'translateX(0)' }}
+          >
+            {checked && <Check className="w-3 h-3" style={{ color: '#1e3a5f' }} />}
+          </span>
+        </button>
+      </span>
     </div>
   )
 }
