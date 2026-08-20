@@ -17,6 +17,9 @@ export async function GET(request: Request) {
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/gmail.readonly',
+    // Needed for the daily case-list backup sheet (see /api/cron/daily-backup)
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file',
   ].join(' ')
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +

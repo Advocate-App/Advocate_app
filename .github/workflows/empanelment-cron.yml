@@ -20,6 +20,7 @@ on:
           - auto-followup
           - check-replies
           - health
+          - daily-backup
 
 env:
   APP_URL: https://advocate-diary-hub-orpin.vercel.app
@@ -93,3 +94,18 @@ jobs:
         run: |
           response=$(curl -s "${{ env.APP_URL }}/api/cron/health")
           echo "Health check: $response"
+
+  daily-backup:
+    if: github.event.inputs.action == 'daily-backup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Snapshot the case list into today's Google Sheet tab
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ env.APP_URL }}/api/cron/daily-backup")
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+          echo "Status: $http_code"
+          echo "Response: $body"
+          if [ "$http_code" != "200" ]; then exit 1; fi
