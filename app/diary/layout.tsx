@@ -19,10 +19,12 @@ import {
   Users,
   Clock,
   CheckSquare,
+  Search,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
+  { href: '/diary/find', label: 'Find Case', icon: Search },
   { href: '/diary/pending', label: 'Pending Dates', icon: Clock },
   { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
   { href: '/diary/closed', label: 'Closed Cases', icon: CheckSquare },
