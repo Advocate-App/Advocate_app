@@ -18,6 +18,20 @@ interface CaseRow {
   hearing_date: string
 }
 
+interface CustomCourtRow {
+  id: string
+  name: string
+  short_name: string | null
+  builtin_code: string | null
+}
+
+function courtLabelFor(code: string, fallbackName: string, customCourts: CustomCourtRow[]): string {
+  const override = customCourts.find((c) => (c.builtin_code || `CUSTOM_${c.id}`) === code)
+  if (override) return override.short_name || override.name
+  const builtin = getCourtShortLabel(code)
+  return builtin && builtin !== code ? builtin : fallbackName
+}
+
 // Court code group classification
 const MACT_LC_WC = (c: string) =>
   c.startsWith('MACT') || c.startsWith('LC') || c.startsWith('WC')
@@ -71,7 +85,7 @@ function getCity(code: string): string {
   return 'Other'
 }
 
-function CaseList({ cases, showDate }: { cases: CaseRow[]; showDate?: boolean }) {
+function CaseList({ cases, showDate, customCourts }: { cases: CaseRow[]; showDate?: boolean; customCourts: CustomCourtRow[] }) {
   if (cases.length === 0) return <p className="text-xs text-gray-400 italic pl-2">None</p>
 
   // Group by city
@@ -90,7 +104,7 @@ function CaseList({ cases, showDate }: { cases: CaseRow[]; showDate?: boolean })
         {cases.map((c, i) => (
           <li key={c.id} className="flex items-baseline gap-1.5 text-xs text-gray-800 leading-5">
             <span className="text-gray-400 w-5 flex-shrink-0 text-right">{i + 1}.</span>
-            <span className="font-semibold text-gray-600 flex-shrink-0">{getCourtShortLabel(c.court_code)}</span>
+            <span className="font-semibold text-gray-600 flex-shrink-0">{courtLabelFor(c.court_code, c.court_name, customCourts)}</span>
             <span className="text-gray-400">–</span>
             <span className="font-mono text-gray-700">{formatCaseNumber(c.case_number, c.case_year)}</span>
             <span className="text-gray-400">–</span>
@@ -117,7 +131,7 @@ function CaseList({ cases, showDate }: { cases: CaseRow[]; showDate?: boolean })
               return (
                 <li key={c.id} className="flex items-baseline gap-1.5 text-xs text-gray-800 leading-5">
                   <span className="text-gray-400 w-5 flex-shrink-0 text-right">{idx}.</span>
-                  <span className="font-semibold text-gray-600 flex-shrink-0">{getCourtShortLabel(c.court_code)}</span>
+                  <span className="font-semibold text-gray-600 flex-shrink-0">{courtLabelFor(c.court_code, c.court_name, customCourts)}</span>
                   <span className="text-gray-400">–</span>
                   <span className="font-mono text-gray-700">{formatCaseNumber(c.case_number, c.case_year)}</span>
                   <span className="text-gray-400">–</span>
@@ -139,6 +153,7 @@ export default function FileListPage() {
   const [cases, setCases] = useState<CaseRow[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
 
   async function fetchFiles() {
     if (!fromDate || !toDate) return
@@ -150,6 +165,9 @@ export default function FileListPage() {
     const { data: adv } = await supabase
       .from('advocates').select('id').eq('user_id', user.id).limit(1).single()
     if (!adv) { setLoading(false); return }
+
+    const { data: cc } = await supabase.from('custom_courts').select('id, name, short_name, builtin_code')
+    setCustomCourts((cc as CustomCourtRow[]) || [])
 
     // Get hearings in date range
     const { data: hearings } = await supabase
@@ -345,7 +363,7 @@ export default function FileListPage() {
                             <span className="text-xs font-bold text-blue-800 uppercase tracking-wide">MACT / LC / WC</span>
                             <span className="ml-2 text-xs text-blue-600">({g1.length})</span>
                           </div>
-                          <div className="px-4 py-3"><CaseList cases={g1} showDate={true} /></div>
+                          <div className="px-4 py-3"><CaseList cases={g1} showDate={true} customCourts={customCourts} /></div>
                         </div>
                       )}
 
@@ -355,7 +373,7 @@ export default function FileListPage() {
                             <span className="text-xs font-bold text-green-800 uppercase tracking-wide">DCF / State Commission</span>
                             <span className="ml-2 text-xs text-green-600">({g2.length})</span>
                           </div>
-                          <div className="px-4 py-3"><CaseList cases={g2} showDate={true} /></div>
+                          <div className="px-4 py-3"><CaseList cases={g2} showDate={true} customCourts={customCourts} /></div>
                         </div>
                       )}
 
@@ -365,7 +383,7 @@ export default function FileListPage() {
                             <span className="text-xs font-bold text-yellow-800 uppercase tracking-wide">NI Cases</span>
                             <span className="ml-2 text-xs text-yellow-600">({g3.length})</span>
                           </div>
-                          <div className="px-4 py-3"><CaseList cases={g3} showDate={true} /></div>
+                          <div className="px-4 py-3"><CaseList cases={g3} showDate={true} customCourts={customCourts} /></div>
                         </div>
                       )}
 
@@ -375,7 +393,7 @@ export default function FileListPage() {
                             <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Civil / Criminal</span>
                             <span className="ml-2 text-xs text-gray-500">({g4.length + g4Other.length})</span>
                           </div>
-                          <div className="px-4 py-3"><CaseList cases={[...g4, ...g4Other]} showDate={true} /></div>
+                          <div className="px-4 py-3"><CaseList cases={[...g4, ...g4Other]} showDate={true} customCourts={customCourts} /></div>
                         </div>
                       )}
 
@@ -392,7 +410,7 @@ export default function FileListPage() {
                                   {name}
                                   <span className="font-normal text-gray-400 ml-1">({companyGroups[name].length})</span>
                                 </div>
-                                <CaseList cases={companyGroups[name]} showDate={true} />
+                                <CaseList cases={companyGroups[name]} showDate={true} customCourts={customCourts} />
                               </div>
                             ))}
                           </div>

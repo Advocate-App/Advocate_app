@@ -15,6 +15,148 @@ function normalize(s: string | null | undefined) {
   return (s || '').trim().toLowerCase()
 }
 
+// ── Row components live outside CourtsPage on purpose ──────────────────────
+// If they were defined inside the page component, React would see a brand
+// new function (a "new component type") on every render — which happens on
+// every keystroke since `edit` is component state — and would unmount +
+// remount the row, killing focus mid-type. Keeping them at module scope with
+// plain props avoids that entirely.
+
+function BuiltinRow({
+  code, name, city, override, isEditing, editShort, editSaving,
+  onStartEdit, onChangeShort, onSave, onCancel,
+}: {
+  code: string
+  name: string
+  city: string
+  override: CourtRow | undefined
+  isEditing: boolean
+  editShort: string
+  editSaving: boolean
+  onStartEdit: () => void
+  onChangeShort: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const displayName = override?.name || name
+  const displayShort = override?.short_name || null
+
+  if (isEditing) {
+    return (
+      <div className="px-4 py-2.5 bg-blue-50 border-b border-gray-100">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={editShort}
+            onChange={(e) => onChangeShort(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder="Short form for diary…"
+            className="w-40 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
+          />
+          <button onClick={onSave} disabled={editSaving}
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
+            <Check className="w-3.5 h-3.5" />{editSaving ? 'Saving…' : 'Save'}
+          </button>
+          <button onClick={onCancel} className="p-1.5 rounded text-gray-400 hover:bg-gray-200">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm text-gray-800 truncate">{displayName}</span>
+        {displayShort && (
+          <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{displayShort}</span>
+        )}
+      </div>
+      <button
+        onClick={onStartEdit}
+        className="shrink-0 p-1.5 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors ml-2"
+      >
+        <Pencil className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
+
+function CustomRow({
+  r, isEditing, editName, editShort, editSaving, deleting,
+  onStartEdit, onChangeName, onChangeShort, onSave, onCancel, onDelete,
+}: {
+  r: CourtRow
+  isEditing: boolean
+  editName: string
+  editShort: string
+  editSaving: boolean
+  deleting: boolean
+  onStartEdit: () => void
+  onChangeName: (v: string) => void
+  onChangeShort: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+  onDelete: () => void
+}) {
+  if (isEditing) {
+    return (
+      <div className="px-4 py-2.5 bg-blue-50 border-b border-gray-100">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            value={editName}
+            onChange={(e) => onChangeName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder="Court name"
+            className="flex-1 min-w-[140px] px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
+          />
+          <input
+            type="text"
+            value={editShort}
+            onChange={(e) => onChangeShort(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder="Short form"
+            className="w-32 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
+          />
+          <button onClick={onSave} disabled={editSaving || !editName.trim()}
+            className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
+            <Check className="w-3.5 h-3.5" />{editSaving ? 'Saving…' : 'Save'}
+          </button>
+          <button onClick={onCancel} className="p-1.5 rounded text-gray-400 hover:bg-gray-200">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm text-gray-800 truncate">{r.name}</span>
+        {r.short_name && (
+          <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{r.short_name}</span>
+        )}
+        <span className="text-xs text-blue-400 shrink-0">custom</span>
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0 ml-2">
+        <button onClick={onStartEdit}
+          className="p-1.5 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={onDelete} disabled={deleting}
+          className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CourtsPage() {
   const [rows, setRows] = useState<CourtRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -126,125 +268,57 @@ export default function CourtsPage() {
     setDeletingId(null)
   }
 
-  // ─── row renderers ───────────────────────────────────────────────────────────
+  // ─── city section ─────────────────────────────────────────────────────────
+  // A plain function that returns JSX (called inline below), not a nested
+  // component — see the note above BuiltinRow for why that distinction
+  // matters here.
 
-  function BuiltinRow({ code, name, city }: { code: string; name: string; city: string }) {
-    const ov = getOverride(code)
-    const displayName = ov?.name || name
-    const displayShort = ov?.short_name || null
-    const isEditing = edit?.key === code
-
-    if (isEditing) {
-      return (
-        <div className="px-4 py-2.5 bg-blue-50 border-b border-gray-100">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              autoFocus
-              type="text"
-              value={edit.short}
-              onChange={e => setEdit({ ...edit, short: e.target.value })}
-              onKeyDown={e => { if (e.key === 'Enter') saveBuiltin(code, name, city); if (e.key === 'Escape') setEdit(null) }}
-              placeholder="Short form for diary…"
-              className="w-40 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
-            />
-            <button onClick={() => saveBuiltin(code, name, city)} disabled={editSaving}
-              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
-              <Check className="w-3.5 h-3.5" />{editSaving ? 'Saving…' : 'Save'}
-            </button>
-            <button onClick={() => setEdit(null)} className="p-1.5 rounded text-gray-400 hover:bg-gray-200">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100 last:border-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm text-gray-800 truncate">{displayName}</span>
-          {displayShort && (
-            <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{displayShort}</span>
-          )}
-        </div>
-        <button
-          onClick={() => setEdit({ key: code, name: displayName, short: displayShort || '' })}
-          className="shrink-0 p-1.5 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors ml-2"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    )
-  }
-
-  function CustomRow({ r }: { r: CourtRow }) {
-    const isEditing = edit?.key === `CUSTOM_${r.id}`
-
-    if (isEditing) {
-      return (
-        <div className="px-4 py-2.5 bg-blue-50 border-b border-gray-100">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              autoFocus
-              type="text"
-              value={edit.name}
-              onChange={e => setEdit({ ...edit, name: e.target.value })}
-              onKeyDown={e => { if (e.key === 'Enter') saveCustom(r.id); if (e.key === 'Escape') setEdit(null) }}
-              placeholder="Court name"
-              className="flex-1 min-w-[140px] px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
-            />
-            <input
-              type="text"
-              value={edit.short}
-              onChange={e => setEdit({ ...edit, short: e.target.value })}
-              onKeyDown={e => { if (e.key === 'Enter') saveCustom(r.id); if (e.key === 'Escape') setEdit(null) }}
-              placeholder="Short form"
-              className="w-32 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
-            />
-            <button onClick={() => saveCustom(r.id)} disabled={editSaving || !edit.name.trim()}
-              className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
-              <Check className="w-3.5 h-3.5" />{editSaving ? 'Saving…' : 'Save'}
-            </button>
-            <button onClick={() => setEdit(null)} className="p-1.5 rounded text-gray-400 hover:bg-gray-200">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )
-    }
-
-    return (
-      <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100 last:border-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm text-gray-800 truncate">{r.name}</span>
-          {r.short_name && (
-            <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{r.short_name}</span>
-          )}
-          <span className="text-xs text-blue-400 shrink-0">custom</span>
-        </div>
-        <div className="flex items-center gap-0.5 shrink-0 ml-2">
-          <button onClick={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '' })}
-            className="p-1.5 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => deleteCourt(r.id)} disabled={deletingId === r.id}
-            className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  function CitySection({ city, builtins }: { city: string; builtins: typeof DISTRICT_COURTS }) {
+  function renderCitySection(city: string, builtins: typeof DISTRICT_COURTS) {
     const customs = customForCity(city)
     if (builtins.length === 0 && customs.length === 0) return null
     return (
-      <div className="mb-5">
+      <div key={city} className="mb-5">
         <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{city}</h2>
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {builtins.map(c => <BuiltinRow key={c.code} code={c.code} name={c.name} city={city} />)}
-          {customs.map(r => <CustomRow key={r.id} r={r} />)}
+          {builtins.map((c) => {
+            const isEditing = edit?.key === c.code
+            return (
+              <BuiltinRow
+                key={c.code}
+                code={c.code}
+                name={c.name}
+                city={city}
+                override={getOverride(c.code)}
+                isEditing={isEditing}
+                editShort={isEditing ? edit!.short : ''}
+                editSaving={editSaving}
+                onStartEdit={() => setEdit({ key: c.code, name: getOverride(c.code)?.name || c.name, short: getOverride(c.code)?.short_name || '' })}
+                onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                onSave={() => saveBuiltin(c.code, c.name, city)}
+                onCancel={() => setEdit(null)}
+              />
+            )
+          })}
+          {customs.map((r) => {
+            const isEditing = edit?.key === `CUSTOM_${r.id}`
+            return (
+              <CustomRow
+                key={r.id}
+                r={r}
+                isEditing={isEditing}
+                editName={isEditing ? edit!.name : ''}
+                editShort={isEditing ? edit!.short : ''}
+                editSaving={editSaving}
+                deleting={deletingId === r.id}
+                onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '' })}
+                onChangeName={(v) => setEdit((prev) => (prev ? { ...prev, name: v } : prev))}
+                onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                onSave={() => saveCustom(r.id)}
+                onCancel={() => setEdit(null)}
+                onDelete={() => deleteCourt(r.id)}
+              />
+            )
+          })}
         </div>
       </div>
     )
@@ -299,27 +373,59 @@ export default function CourtsPage() {
           <div className="mb-5">
             <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">High Court of Rajasthan</h2>
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              {HC_BENCHES.map(b => (
-                <BuiltinRow key={b.code} code={b.code} name={b.name} city={b.code === 'jodhpur' ? 'Jodhpur' : 'Jaipur'} />
-              ))}
+              {HC_BENCHES.map((b) => {
+                const city = b.code === 'jodhpur' ? 'Jodhpur' : 'Jaipur'
+                const isEditing = edit?.key === b.code
+                return (
+                  <BuiltinRow
+                    key={b.code}
+                    code={b.code}
+                    name={b.name}
+                    city={city}
+                    override={getOverride(b.code)}
+                    isEditing={isEditing}
+                    editShort={isEditing ? edit!.short : ''}
+                    editSaving={editSaving}
+                    onStartEdit={() => setEdit({ key: b.code, name: getOverride(b.code)?.name || b.name, short: getOverride(b.code)?.short_name || '' })}
+                    onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                    onSave={() => saveBuiltin(b.code, b.name, city)}
+                    onCancel={() => setEdit(null)}
+                  />
+                )
+              })}
             </div>
           </div>
 
           {/* District courts by city — custom courts appear in their city */}
-          {CITIES.map(city => (
-            <CitySection
-              key={city}
-              city={city}
-              builtins={DISTRICT_COURTS.filter(c => c.district === city && c.code !== 'OTHER')}
-            />
-          ))}
+          {CITIES.map(city =>
+            renderCitySection(city, DISTRICT_COURTS.filter(c => c.district === city && c.code !== 'OTHER'))
+          )}
 
           {/* Other/unassigned custom courts */}
           {otherCustoms.length > 0 && (
             <div className="mb-5">
               <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Other</h2>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                {otherCustoms.map(r => <CustomRow key={r.id} r={r} />)}
+                {otherCustoms.map((r) => {
+                  const isEditing = edit?.key === `CUSTOM_${r.id}`
+                  return (
+                    <CustomRow
+                      key={r.id}
+                      r={r}
+                      isEditing={isEditing}
+                      editName={isEditing ? edit!.name : ''}
+                      editShort={isEditing ? edit!.short : ''}
+                      editSaving={editSaving}
+                      deleting={deletingId === r.id}
+                      onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '' })}
+                      onChangeName={(v) => setEdit((prev) => (prev ? { ...prev, name: v } : prev))}
+                      onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                      onSave={() => saveCustom(r.id)}
+                      onCancel={() => setEdit(null)}
+                      onDelete={() => deleteCourt(r.id)}
+                    />
+                  )
+                })}
               </div>
             </div>
           )}

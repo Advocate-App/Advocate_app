@@ -14,10 +14,18 @@ const HINDI_DAYS: Record<string, string> = {
 interface SlipCase {
   sr: number
   court: string
+  courtName: string
   caseNumber: string
   caseYear: number | null
   plaintiff: string
   defendant: string
+}
+
+interface CustomCourtRow {
+  id: string
+  name: string
+  short_name: string | null
+  builtin_code: string | null
 }
 
 export default function PrintSlipPage() {
@@ -25,6 +33,7 @@ export default function PrintSlipPage() {
   const [cases, setCases] = useState<SlipCase[]>([])
   const [advocateName, setAdvocateName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
 
   const parsedDate = (() => { try { return parseISO(date) } catch { return new Date() } })()
   const displayDate = format(parsedDate, 'd MMMM yyyy')
@@ -40,6 +49,9 @@ export default function PrintSlipPage() {
       const { data: advData } = await supabase
         .from('advocates').select('id, full_name').eq('user_id', user.id).limit(1).single()
       if (advData) setAdvocateName(advData.full_name)
+
+      const { data: cc } = await supabase.from('custom_courts').select('id, name, short_name, builtin_code')
+      setCustomCourts((cc as CustomCourtRow[]) || [])
 
       const { data: hearings } = await supabase
         .from('hearings').select('case_id').eq('hearing_date', date).order('created_at', { ascending: true })
@@ -67,6 +79,7 @@ export default function PrintSlipPage() {
         slip.push({
           sr: sr++,
           court: c.court_code || c.court_name,
+          courtName: c.court_name,
           caseNumber: c.case_number,
           caseYear: c.case_year,
           plaintiff: c.party_plaintiff,
@@ -84,6 +97,13 @@ export default function PrintSlipPage() {
     }
     load()
   }, [date])
+
+  function courtLabel(code: string, fallbackName: string): string {
+    const override = customCourts.find((c) => (c.builtin_code || `CUSTOM_${c.id}`) === code)
+    if (override) return override.short_name || override.name
+    const builtin = getCourtShortLabel(code)
+    return builtin && builtin !== code ? builtin : fallbackName
+  }
 
   const COMPANY_SHORT: [string, string][] = [
     ['Universal Sompo', 'Sompo'], ['United India', 'United India'],
@@ -254,7 +274,7 @@ export default function PrintSlipPage() {
             <ul className="cases">
               {cases.map((c) => (
                 <li key={c.sr} className="case-row">
-                  <span className="court">{getCourtShortLabel(c.court)}</span>
+                  <span className="court">{courtLabel(c.court, c.courtName)}</span>
                   <span className="sep">–</span>
                   <span className="caseno">{formatCaseNumber(c.caseNumber, c.caseYear)}</span>
                   <span className="sep">–</span>

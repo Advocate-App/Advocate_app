@@ -19,12 +19,20 @@ interface PendingCase {
   defendant: string
 }
 
+interface CustomCourtRow {
+  id: string
+  name: string
+  short_name: string | null
+  builtin_code: string | null
+}
+
 export default function PendingPage() {
   const [items, setItems] = useState<PendingCase[]>([])
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [nextDate, setNextDate] = useState<Record<string, string>>({})
   const [stage, setStage] = useState<Record<string, string>>({})
+  const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
 
   useEffect(() => { load() }, [])
 
@@ -35,6 +43,9 @@ export default function PendingPage() {
     if (!user) return
     const { data: adv } = await supabase.from('advocates').select('id').eq('user_id', user.id).limit(1).single()
     if (!adv) return
+
+    const { data: cc } = await supabase.from('custom_courts').select('id, name, short_name, builtin_code')
+    setCustomCourts((cc as CustomCourtRow[]) || [])
 
     // All past/today hearings with no next date set
     const { data } = await supabase
@@ -115,8 +126,11 @@ export default function PendingPage() {
   }
 
   const courtLabel = (c: PendingCase) => {
-    const s = getCourtShortLabel(c.courtCode || '')
-    return s !== (c.courtCode || '') ? s : c.courtName
+    const code = c.courtCode || ''
+    const override = customCourts.find((cc) => (cc.builtin_code || `CUSTOM_${cc.id}`) === code)
+    if (override) return override.short_name || override.name
+    const s = getCourtShortLabel(code)
+    return s !== code ? s : c.courtName
   }
 
   return (
