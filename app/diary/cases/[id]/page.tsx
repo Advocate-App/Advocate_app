@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useDropzone } from 'react-dropzone'
 import { format, isToday, isPast, parseISO } from 'date-fns'
+import { compressFile } from '@/lib/compress'
 import {
   getCourtLabel,
   eCourtsDeepLink,
@@ -192,6 +193,8 @@ export default function CaseDetailPage() {
   const [docsLoading, setDocsLoading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('other')
   const [uploading, setUploading] = useState(false)
+  const [compressingName, setCompressingName] = useState<string | null>(null)
+  const [compressionNote, setCompressionNote] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // Delete case
@@ -415,9 +418,17 @@ export default function CaseDetailPage() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!advocateId || !id || acceptedFiles.length === 0) return
     setUploading(true)
+    setCompressionNote(null)
     const supabase = createClient()
+    let totalBefore = 0
+    let totalAfter = 0
 
-    for (const file of acceptedFiles) {
+    for (const rawFile of acceptedFiles) {
+      setCompressingName(rawFile.name)
+      const { file, originalBytes, compressedBytes } = await compressFile(rawFile)
+      totalBefore += originalBytes
+      totalAfter += compressedBytes
+
       const ts = Date.now()
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const storagePath = `${advocateId}/${id}/${ts}_${safeName}`
@@ -442,6 +453,11 @@ export default function CaseDetailPage() {
       })
     }
 
+    setCompressingName(null)
+    if (totalBefore > 0 && totalAfter < totalBefore) {
+      const pct = Math.round((1 - totalAfter / totalBefore) * 100)
+      setCompressionNote(`Compressed ${formatBytes(totalBefore)} → ${formatBytes(totalAfter)} (${pct}% smaller)`)
+    }
     setUploading(false)
     loadDocuments()
   }, [advocateId, id, uploadDocType, loadDocuments])
@@ -1397,7 +1413,7 @@ export default function CaseDetailPage() {
               {uploading ? (
                 <div className="flex items-center justify-center gap-2 text-gray-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Uploading...
+                  {compressingName ? `Compressing ${compressingName}…` : 'Uploading...'}
                 </div>
               ) : (
                 <div>
@@ -1407,10 +1423,13 @@ export default function CaseDetailPage() {
                       ? 'Drop files here...'
                       : 'Drag and drop PDF, JPG, or PNG files here, or click to browse'}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">Max 10 MB per file</p>
+                  <p className="text-xs text-gray-400 mt-1">Max 10 MB per file — compressed automatically, no visible quality loss</p>
                 </div>
               )}
             </div>
+            {compressionNote && (
+              <p className="text-xs text-emerald-600 font-medium mt-2 text-center">✓ {compressionNote}</p>
+            )}
           </div>
 
           {/* Documents Grid */}
