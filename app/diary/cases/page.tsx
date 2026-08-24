@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCourtLabel, eCourtsDeepLink, formatCaseNumber } from '@/lib/constants/courts'
+import { fetchAllRows } from '@/lib/fetchAll'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -94,18 +95,18 @@ export default function CasesPage() {
       }
 
       // Get all cases (no advocate_id filter — cases may be stored with different IDs)
-      const { data: casesData, error: casesErr } = await supabase
-        .from('cases')
-        .select('id, court_level, court_code, court_name, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, case_stage, status, ecourts_cnr, hc_bench, created_at')
-        .order('created_at', { ascending: false })
-
-      if (casesErr) {
-        setError(casesErr.message)
-        setLoading(false)
-        return
+      try {
+        const casesData = await fetchAllRows<Case>((from, to) =>
+          supabase
+            .from('cases')
+            .select('id, court_level, court_code, court_name, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, case_stage, status, ecourts_cnr, hc_bench, created_at')
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        )
+        setCases(casesData)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load cases')
       }
-
-      setCases(casesData || [])
       setLoading(false)
     }
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCourtShortLabel, formatCaseNumber } from '@/lib/constants/courts'
 import { fuzzyMatch } from '@/lib/fuzzy'
+import { fetchAllRows } from '@/lib/fetchAll'
 import Link from 'next/link'
 import { Search, ChevronLeft, ChevronRight, Plus, X, SlidersHorizontal } from 'lucide-react'
 
@@ -88,14 +89,17 @@ export default function AllCasesPage() {
   useEffect(() => {
     async function load() {
       const supabase = createClient()
-      const [{ data: cases }, { data: cc }] = await Promise.all([
-        supabase
-          .from('cases')
-          .select('id, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
-          .order('party_plaintiff', { ascending: true }),
+      const [cases, { data: cc }] = await Promise.all([
+        fetchAllRows<CaseRow>((from, to) =>
+          supabase
+            .from('cases')
+            .select('id, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
+            .order('party_plaintiff', { ascending: true })
+            .range(from, to)
+        ),
         supabase.from('custom_courts').select('id, name, short_name, builtin_code'),
       ])
-      setAllCases((cases as CaseRow[]) || [])
+      setAllCases(cases)
       setCustomCourts((cc as CustomCourtRow[]) || [])
       setLoading(false)
     }

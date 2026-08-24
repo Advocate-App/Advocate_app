@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 interface ClosedHearing {
   id: string
@@ -56,12 +57,15 @@ export default function ClosedCasesPage() {
   const load = useCallback(async (advId: string) => {
     const supabase = createClient()
     // fetch all hearings with final stage for this advocate's cases
-    const { data: cases } = await supabase
-      .from('cases')
-      .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant')
-      .eq('advocate_id', advId)
+    const cases = await fetchAllRows<{ id: string; court_code: string; court_name: string; case_number: string; case_year: number | null; party_plaintiff: string; party_defendant: string }>((from, to) =>
+      supabase
+        .from('cases')
+        .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant')
+        .eq('advocate_id', advId)
+        .range(from, to)
+    )
 
-    if (!cases || cases.length === 0) { setLoading(false); return }
+    if (cases.length === 0) { setLoading(false); return }
 
     const caseMap = new Map(cases.map((c: { id: string; court_code: string; court_name: string; case_number: string; case_year: number | null; party_plaintiff: string; party_defendant: string }) => [c.id, c]))
     const caseIds = cases.map((c: { id: string }) => c.id)

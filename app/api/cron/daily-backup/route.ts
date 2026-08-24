@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getOrCreateYearSpreadsheet, addDailyBackupTab, type BackupCaseRow } from '@/lib/googleSheetsBackup'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 // Which Google account owns the yearly backup workbook. Chosen by Avi.
 const BACKUP_ACCOUNT: 'avi' | 'ratnesh' = 'ratnesh'
@@ -24,20 +25,21 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createAdminClient()
-    const { data: cases, error } = await supabase
-      .from('cases')
-      .select(`
-        court_name, city, case_number, case_year, party_plaintiff, party_defendant,
-        client_name, case_stage, status, is_company_case, payment_received,
-        documents_received, bills_generated, order_passed, order_sent_to_company, appeal_filed
-      `)
-      .order('party_plaintiff', { ascending: true })
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const cases = await fetchAllRows<BackupCaseRow>((from, to) =>
+      supabase
+        .from('cases')
+        .select(`
+          court_name, city, case_number, case_year, party_plaintiff, party_defendant,
+          client_name, case_stage, status, is_company_case, payment_received,
+          documents_received, bills_generated, order_passed, order_sent_to_company, appeal_filed
+        `)
+        .order('party_plaintiff', { ascending: true })
+        .range(from, to)
+    )
 
     const { tabTitle, year } = todayIST()
     const spreadsheetId = await getOrCreateYearSpreadsheet(BACKUP_ACCOUNT, year)
-    const result = await addDailyBackupTab(BACKUP_ACCOUNT, spreadsheetId, tabTitle, (cases || []) as BackupCaseRow[])
+    const result = await addDailyBackupTab(BACKUP_ACCOUNT, spreadsheetId, tabTitle, cases)
 
     return NextResponse.json({
       success: true,
@@ -46,9 +48,9 @@ export async function GET(request: Request) {
       spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
       tab: result.sheetTitle,
       created: result.created,
-      caseCount: cases?.length || 0,
+      caseCount: cases.length,
       message: result.created
-        ? `Backed up ${cases?.length || 0} cases to tab "${result.sheetTitle}"`
+        ? `Backed up ${cases.length} cases to tab "${result.sheetTitle}"`
         : `Tab "${result.sheetTitle}" already existed — skipped (cron probably ran twice today)`,
     })
   } catch (e: unknown) {

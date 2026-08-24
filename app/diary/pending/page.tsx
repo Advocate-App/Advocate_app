@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { DISTRICT_STAGES, HC_STAGES, getCourtShortLabel } from '@/lib/constants/courts'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 interface PendingCase {
   hearingId: string
@@ -49,19 +50,20 @@ export default function PendingPage() {
     setCustomCourts((cc as CustomCourtRow[]) || [])
 
     // All past/today hearings with no next date set
-    const { data } = await supabase
-      .from('hearings')
-      .select('id, hearing_date, stage_on_date, case_id, cases(court_code, court_name, court_level, case_number, case_year, party_plaintiff, party_defendant, advocate_id, status)')
-      .lte('hearing_date', today)
-      .is('next_hearing_date', null)
-      .order('hearing_date', { ascending: false })
-
-    if (!data) { setLoading(false); return }
+    const data = await fetchAllRows<any>((from, to) =>
+      supabase
+        .from('hearings')
+        .select('id, hearing_date, stage_on_date, case_id, cases(court_code, court_name, court_level, case_number, case_year, party_plaintiff, party_defendant, advocate_id, status)')
+        .lte('hearing_date', today)
+        .is('next_hearing_date', null)
+        .order('hearing_date', { ascending: false })
+        .range(from, to)
+    )
 
     // Keep only advocate's active cases; deduplicate to most recent hearing per case
     const seen = new Set<string>()
     const rows: PendingCase[] = []
-    for (const h of data as any[]) {
+    for (const h of data) {
       if (!h.cases || h.cases.advocate_id !== adv.id) continue
       if (h.cases.status === 'disposed') continue
       if (seen.has(h.case_id)) continue
@@ -86,14 +88,17 @@ export default function PendingPage() {
     // Last 3 hearing dates per case, so it's easier to recognize the case
     // and judge what date to give next
     if (rows.length > 0) {
-      const { data: hist } = await supabase
-        .from('hearings')
-        .select('case_id, hearing_date')
-        .in('case_id', rows.map(r => r.caseId))
-        .order('hearing_date', { ascending: false })
+      const hist = await fetchAllRows<{ case_id: string; hearing_date: string }>((from, to) =>
+        supabase
+          .from('hearings')
+          .select('case_id, hearing_date')
+          .in('case_id', rows.map(r => r.caseId))
+          .order('hearing_date', { ascending: false })
+          .range(from, to)
+      )
 
       const byCase: Record<string, string[]> = {}
-      for (const h of (hist as { case_id: string; hearing_date: string }[]) || []) {
+      for (const h of hist) {
         if (!byCase[h.case_id]) byCase[h.case_id] = []
         if (byCase[h.case_id].length < 3) byCase[h.case_id].push(h.hearing_date)
       }

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/fetchAll'
 import {
   format,
   parseISO,
@@ -252,12 +253,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const supabase = createClient()
       const start = toYMD(startOfMonth(selectedDate))
       const end = toYMD(endOfMonth(selectedDate))
-      const { data: myCases } = await supabase
-        .from('cases')
-        .select('id')
-        .eq('advocate_id', advocateId)
-      if (!myCases || myCases.length === 0) return
-      const myCaseIds = myCases.map((c: { id: string }) => c.id)
+      const myCases = await fetchAllRows<{ id: string }>((from, to) =>
+        supabase.from('cases').select('id').eq('advocate_id', advocateId).range(from, to)
+      )
+      if (myCases.length === 0) return
+      const myCaseIds = myCases.map((c) => c.id)
       // PostgREST URL limit — batch if needed
       const BATCH = 200
       const dates = new Set<string>()
@@ -399,12 +399,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     searchTimeout.current = setTimeout(async () => {
       setSearching(true)
       const supabase = createClient()
-      const { data, error } = await supabase
-        .from('cases')
-        .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, party_plaintiff, party_defendant')
-      if (error) console.error('Case search error:', error)
+      const data = await fetchAllRows<SearchResult>((from, to) =>
+        supabase
+          .from('cases')
+          .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, party_plaintiff, party_defendant')
+          .range(from, to)
+      ).catch((err) => { console.error('Case search error:', err); return [] as SearchResult[] })
       const qLow = q.toLowerCase()
-      const filtered = (data || []).filter((c: SearchResult) =>
+      const filtered = data.filter((c: SearchResult) =>
         [c.full_title, c.party_plaintiff, c.party_defendant, c.case_number]
           .some(v => v && v.toLowerCase().includes(qLow))
       )
