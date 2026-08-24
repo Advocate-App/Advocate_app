@@ -805,7 +805,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name */}
                         <td className="border border-gray-200 px-2 py-2">
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-sm font-medium text-gray-700 whitespace-nowrap"
+                            className="inline-block px-1.5 py-0.5 rounded text-base font-semibold text-gray-700 whitespace-nowrap"
                             style={{ background: courtBg }}
                           >
                             {courtShortLabel(courtCode, h.caseData.court_name)}
@@ -813,19 +813,19 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
 
                         {/* Case No. */}
-                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm text-gray-800 whitespace-nowrap">
-                          <Link href={`/diary/cases/${h.case_id}`} className="font-semibold hover:underline" style={{ color: '#1e3a5f' }}>
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-base text-gray-800 whitespace-nowrap">
+                          <Link href={`/diary/cases/${h.case_id}`} className="font-bold hover:underline" style={{ color: '#1e3a5f' }}>
                             {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                           </Link>
                         </td>
 
                         {/* Party 1 */}
-                        <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
+                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
                           <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
                         </td>
 
                         {/* Party 2 */}
-                        <td className="border border-gray-200 px-2 py-2 text-sm text-gray-800 max-w-[144px]">
+                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
                           <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
                         </td>
 
@@ -1049,14 +1049,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               return (
                 <div key={h.id} className="bg-white rounded-xl border border-gray-200 p-4" style={{ borderLeft: `4px solid ${borderColor}` }}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block px-2.5 py-1 rounded text-base font-semibold text-gray-700" style={{ background: courtBg }}>
+                    <span className="inline-block px-2.5 py-1 rounded text-lg font-bold text-gray-700" style={{ background: courtBg }}>
                       {customCourtMap[courtCode] || getCourtLabel(courtCode || h.caseData.court_name)}
                     </span>
-                    <span className="text-base font-mono font-semibold text-gray-600">
+                    <span className="text-lg font-mono font-bold text-gray-600">
                       {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                     </span>
                   </div>
-                  <Link href={`/diary/cases/${h.case_id}`} className="block text-lg leading-snug font-semibold mb-2 hover:underline" style={{ color: '#1e3a5f' }}>
+                  <Link href={`/diary/cases/${h.case_id}`} className="block text-xl leading-snug font-bold mb-2 hover:underline" style={{ color: '#1e3a5f' }}>
                     {h.caseData.party_plaintiff} <span className="text-gray-400 font-normal">vs</span> {h.caseData.party_defendant}
                   </Link>
                   <div className="text-sm text-gray-500 mb-2">
