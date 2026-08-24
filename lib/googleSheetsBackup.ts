@@ -11,6 +11,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getAccessToken } from '@/lib/gmail'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
+const DRIVE_API = 'https://www.googleapis.com/drive/v3'
+const ROOT_FOLDER_NAME = 'Advocate Hub Backups'
 
 export interface BackupCaseRow {
   court_name: string | null
@@ -47,7 +49,43 @@ async function sheetsFetch(accessToken: string, path: string, init: RequestInit 
   return res.json()
 }
 
-/** Finds (or creates) this year's backup spreadsheet for the given account. */
+async function driveFetch(accessToken: string, path: string, init: RequestInit = {}) {
+  const res = await fetch(`${DRIVE_API}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Drive API ${path} failed (${res.status}): ${text}`)
+  }
+  return res.json()
+}
+
+/** Finds a folder by name+parent, or creates it. Keeps everything the app
+ *  makes inside one tidy tree instead of scattering files at Drive's root. */
+async function getOrCreateFolder(accessToken: string, name: string, parentId?: string): Promise<string> {
+  const parentClause = parentId ? ` and '${parentId}' in parents` : ` and 'root' in parents`
+  const q = `mimeType='application/vnd.google-apps.folder' and name='${name.replace(/'/g, "\\'")}' and trashed=false${parentClause}`
+  const found = await driveFetch(accessToken, `/files?q=${encodeURIComponent(q)}&fields=files(id,name)`)
+  if (found.files && found.files.length > 0) return found.files[0].id
+
+  const created = await driveFetch(accessToken, '/files?fields=id', {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: parentId ? [parentId] : undefined,
+    }),
+  })
+  return created.id
+}
+
+/** Finds (or creates) this year's backup spreadsheet for the given account,
+ *  filed under "Advocate Hub Backups / <year> /" in that account's Drive. */
 export async function getOrCreateYearSpreadsheet(
   account: 'avi' | 'ratnesh',
   year: number
@@ -64,15 +102,37 @@ export async function getOrCreateYearSpreadsheet(
   if (existing?.spreadsheet_id) return existing.spreadsheet_id
 
   const accessToken = await getAccessToken(account)
-  const created = await sheetsFetch(accessToken, '', {
+
+  const rootFolderId = await getOrCreateFolder(accessToken, ROOT_FOLDER_NAME)
+  const yearFolderId = await getOrCreateFolder(accessToken, String(year), rootFolderId)
+
+  // Create the spreadsheet directly inside the year folder (Drive API, not
+  // the Sheets API — Sheets' own create endpoint can't set a parent folder).
+  const created = await driveFetch(accessToken, '/files?fields=id', {
     method: 'POST',
     body: JSON.stringify({
-      properties: { title: `Advocate Hub Case Backup ${year}` },
-      sheets: [{ properties: { title: 'Read Me' } }],
+      name: `Advocate Hub Case Backup ${year}`,
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+      parents: [yearFolderId],
     }),
   })
+  const spreadsheetId = created.id as string
 
-  const spreadsheetId = created.spreadsheetId as string
+  // Cosmetic: rename the default first tab
+  try {
+    const meta = await sheetsFetch(accessToken, `/${spreadsheetId}?fields=sheets.properties`)
+    const firstSheetId = meta.sheets?.[0]?.properties?.sheetId
+    if (firstSheetId !== undefined) {
+      await sheetsFetch(accessToken, `/${spreadsheetId}:batchUpdate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          requests: [{ updateSheetProperties: { properties: { sheetId: firstSheetId, title: 'Read Me' }, fields: 'title' } }],
+        }),
+      })
+    }
+  } catch {
+    // non-fatal — cosmetic only
+  }
 
   await supabase.from('backup_sheets').insert({
     year,

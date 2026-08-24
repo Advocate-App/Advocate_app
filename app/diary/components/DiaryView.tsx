@@ -768,8 +768,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 2</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-28">Stage</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20">Next</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-36 print:hidden">Action</th>
-                  <th className="border border-gray-300 px-2 py-2 w-20 print:hidden"></th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-40 print:hidden">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -908,9 +907,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           )}
                         </td>
 
-                        {/* Final Action column */}
+                        {/* Action column — final-stage quick actions, or the everyday comment/eCourts icons */}
                         <td className="border border-gray-200 px-2 py-2 print:hidden">
-                          {isFinalStage(h.stage_on_date) && (
+                          {isFinalStage(h.stage_on_date) ? (
                             commentHearingId === h.id ? (
                               <div className="flex items-center gap-1">
                                 <input
@@ -953,32 +952,29 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                                 >+</button>
                               </div>
                             )
+                          ) : (
+                            <div className="flex items-center gap-0.5 justify-center">
+                              <button
+                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+                                className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                                title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </button>
+                              {ecLink && (
+                                <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
                           )}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="border border-gray-200 px-1 py-2 print:hidden">
-                          <div className="flex items-center gap-0.5 justify-center">
-                            <button
-                              onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                              className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-                              title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                            </button>
-                            {ecLink && (
-                              <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
                         </td>
                       </tr>
 
                       {/* Inline comment always visible if exists, or open for editing */}
                       {!isFinalStage(h.stage_on_date) && (h.outcome_notes || commentHearingId === h.id) && (
                         <tr key={`cmt-${h.id}`}>
-                          <td colSpan={9} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
+                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
                             {commentHearingId === h.id ? (
                               <div className="flex items-start gap-2">
                                 <textarea
@@ -1012,7 +1008,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       {/* Case history row */}
                       {expandedCaseId === h.case_id && (
                         <tr key={`hist-${h.id}`}>
-                          <td colSpan={9} className="border border-gray-200 px-3 py-2 print:hidden bg-gray-50">
+                          <td colSpan={8} className="border border-gray-200 px-3 py-2 print:hidden bg-gray-50">
                             <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Case History</div>
                             {caseHistory.length === 0 ? (
                               <p className="text-xs text-gray-400">No history found.</p>
