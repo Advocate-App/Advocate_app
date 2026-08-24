@@ -98,12 +98,14 @@ interface CaseDocument {
   id: string
   case_id: string
   file_name: string
-  storage_path: string
+  storage_path: string | null
   file_size_bytes: number | null
   mime_type: string | null
   doc_type: string | null
   uploaded_at: string
   notes: string | null
+  external_url: string | null
+  source: 'upload' | 'drive_link'
 }
 
 type TabKey = 'overview' | 'tracking' | 'hearings' | 'documents' | 'ecourts'
@@ -196,6 +198,12 @@ export default function CaseDetailPage() {
   const [compressingName, setCompressingName] = useState<string | null>(null)
   const [compressionNote, setCompressionNote] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // Google Drive link state
+  const [driveUrl, setDriveUrl] = useState('')
+  const [driveName, setDriveName] = useState('')
+  const [driveError, setDriveError] = useState('')
+  const [addingDriveLink, setAddingDriveLink] = useState(false)
 
   // Delete case
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -462,6 +470,51 @@ export default function CaseDetailPage() {
     loadDocuments()
   }, [advocateId, id, uploadDocType, loadDocuments])
 
+  // ───── Google Drive link ─────
+  function extractDriveFileId(url: string): string | null {
+    const patterns = [
+      /\/file\/d\/([a-zA-Z0-9_-]+)/,       // .../file/d/<id>/view
+      /[?&]id=([a-zA-Z0-9_-]+)/,           // .../open?id=<id> or ...uc?id=<id>
+      /\/document\/d\/([a-zA-Z0-9_-]+)/,   // Google Docs link
+      /\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/, // Google Sheets link
+    ]
+    for (const re of patterns) {
+      const m = url.match(re)
+      if (m) return m[1]
+    }
+    return null
+  }
+
+  async function addDriveLink(e: React.FormEvent) {
+    e.preventDefault()
+    setDriveError('')
+    if (!driveUrl.trim()) return
+    if (!/drive\.google\.com|docs\.google\.com/.test(driveUrl)) {
+      setDriveError('That doesn\'t look like a Google Drive link.')
+      return
+    }
+    if (!extractDriveFileId(driveUrl)) {
+      setDriveError('Couldn\'t read a file from that link — make sure it\'s a "Share" link for a single file.')
+      return
+    }
+    if (!id) return
+    setAddingDriveLink(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('case_documents').insert({
+      case_id: id,
+      file_name: driveName.trim() || 'Google Drive file',
+      external_url: driveUrl.trim(),
+      source: 'drive_link',
+      doc_type: uploadDocType,
+      uploaded_by: advocateId,
+    })
+    setAddingDriveLink(false)
+    if (error) { setDriveError(error.message); return }
+    setDriveUrl('')
+    setDriveName('')
+    loadDocuments()
+  }
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
@@ -473,6 +526,11 @@ export default function CaseDetailPage() {
   })
 
   async function downloadDoc(doc: CaseDocument) {
+    if (doc.source === 'drive_link' && doc.external_url) {
+      window.open(doc.external_url, '_blank')
+      return
+    }
+    if (!doc.storage_path) return
     const supabase = createClient()
     const { data } = await supabase.storage
       .from('case-documents')
@@ -480,9 +538,9 @@ export default function CaseDetailPage() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
-  async function deleteDoc(docId: string, storagePath: string) {
+  async function deleteDoc(docId: string, storagePath: string | null) {
     const supabase = createClient()
-    await supabase.storage.from('case-documents').remove([storagePath])
+    if (storagePath) await supabase.storage.from('case-documents').remove([storagePath])
     await supabase.from('case_documents').delete().eq('id', docId)
     setDeleteConfirmId(null)
     loadDocuments()
@@ -1430,6 +1488,39 @@ export default function CaseDetailPage() {
             {compressionNote && (
               <p className="text-xs text-emerald-600 font-medium mt-2 text-center">✓ {compressionNote}</p>
             )}
+
+            {/* Or link a Google Drive file — stays in Drive, no copy made */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-xs font-medium text-gray-600 mb-2">Or add a file that&rsquo;s already in Google Drive</p>
+              <form onSubmit={addDriveLink} className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="url"
+                  value={driveUrl}
+                  onChange={(e) => setDriveUrl(e.target.value)}
+                  placeholder="Paste the Drive share link…"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                />
+                <input
+                  type="text"
+                  value={driveName}
+                  onChange={(e) => setDriveName(e.target.value)}
+                  placeholder="Label (e.g. Written Statement)"
+                  className="sm:w-56 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                />
+                <button
+                  type="submit"
+                  disabled={addingDriveLink || !driveUrl.trim()}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  {addingDriveLink ? 'Adding…' : 'Add'}
+                </button>
+              </form>
+              {driveError && <p className="text-xs text-red-500 mt-1.5">{driveError}</p>}
+              <p className="text-xs text-gray-400 mt-1.5">
+                In Drive: open the file → Share → Copy link, then paste it here. The file stays in Drive — this app only keeps the link.
+              </p>
+            </div>
           </div>
 
           {/* Documents Grid */}
@@ -1450,7 +1541,11 @@ export default function CaseDetailPage() {
                   className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col"
                 >
                   <div className="flex items-start gap-3 mb-3 min-w-0">
-                    <FileText className="w-8 h-8 text-gray-400 shrink-0 mt-0.5" />
+                    {doc.source === 'drive_link' ? (
+                      <ExternalLink className="w-8 h-8 text-gray-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <FileText className="w-8 h-8 text-gray-400 shrink-0 mt-0.5" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-gray-800 truncate" title={doc.file_name}>
                         {doc.file_name}
@@ -1462,9 +1557,11 @@ export default function CaseDetailPage() {
                         >
                           {capitalize(doc.doc_type)}
                         </span>
-                        <span className="text-xs text-gray-400">
-                          {formatBytes(doc.file_size_bytes)}
-                        </span>
+                        {doc.source === 'drive_link' ? (
+                          <span className="text-xs text-gray-400">Google Drive</span>
+                        ) : (
+                          <span className="text-xs text-gray-400">{formatBytes(doc.file_size_bytes)}</span>
+                        )}
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
                         {formatDate(doc.uploaded_at)}
@@ -1477,8 +1574,17 @@ export default function CaseDetailPage() {
                       onClick={() => downloadDoc(doc)}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      Download
+                      {doc.source === 'drive_link' ? (
+                        <>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open in Drive
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" />
+                          Download
+                        </>
+                      )}
                     </button>
                     {deleteConfirmId === doc.id ? (
                       <div className="flex items-center gap-1">
