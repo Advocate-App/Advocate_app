@@ -35,15 +35,9 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Only redirect to login from the root or login page — diary pages handle their own auth
-  const isProtectedRootOnly = pathname === '/'
+  // '/' is the public tribute page now — it handles its own Login /
+  // Take-me-to-the-app button, so no auth redirect happens here.
   const isLoginPage = pathname === '/login'
-
-  if (!session && isProtectedRootOnly) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
-  }
 
   if (session && isLoginPage) {
     const url = request.nextUrl.clone()
