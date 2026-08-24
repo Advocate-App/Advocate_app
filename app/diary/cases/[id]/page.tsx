@@ -30,6 +30,7 @@ import {
   Check,
   ListChecks,
   BookOpen,
+  Eye,
 } from 'lucide-react'
 
 // ───────────────────── Types ─────────────────────
@@ -172,6 +173,7 @@ export default function CaseDetailPage() {
   const [caseData, setCaseData] = useState<CaseRecord | null>(null)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
+  const [readOnly, setReadOnly] = useState(false) // juniors: view only, no edits
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
@@ -251,11 +253,15 @@ export default function CaseDetailPage() {
       // Get advocate_id
       const { data: advRows } = await supabase
         .from('advocates')
-        .select('id, full_name')
+        .select('id, full_name, role')
         .eq('user_id', user.id)
         .limit(1)
       const adv = advRows?.[0] || null
-      if (adv) { setAdvocateId(adv.id); setAdvocateName(adv.full_name || '') }
+      if (adv) {
+        setAdvocateId(adv.id)
+        setAdvocateName(adv.full_name || '')
+        setReadOnly(adv.role === 'junior')
+      }
 
       // Fetch case by ID
       const { data: c, error } = await supabase
@@ -797,43 +803,52 @@ export default function CaseDetailPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href={`/diary/cases/${id}/edit`}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
-            style={{ background: '#1e3a5f' }}
-          >
-            <Pencil className="w-4 h-4" />
-            Edit
-          </Link>
-          {!showDeleteConfirm ? (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+        {!readOnly && (
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={`/diary/cases/${id}/edit`}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium"
+              style={{ background: '#1e3a5f' }}
             >
-              <Trash2 className="w-4 h-4" />
-              Delete
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
-              <span className="text-sm text-red-700 font-medium">Delete this case?</span>
+              <Pencil className="w-4 h-4" />
+              Edit
+            </Link>
+            {!showDeleteConfirm ? (
               <button
-                onClick={deleteCase}
-                disabled={deleting}
-                className="px-3 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
               >
-                {deleting ? 'Deleting…' : 'Yes, Delete'}
+                <Trash2 className="w-4 h-4" />
+                Delete
               </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+                <span className="text-sm text-red-700 font-medium">Delete this case?</span>
+                <button
+                  onClick={deleteCase}
+                  disabled={deleting}
+                  className="px-3 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : 'Yes, Delete'}
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {readOnly && (
+        <div className="mb-6 px-4 py-2.5 rounded-lg text-sm flex items-center gap-2" style={{ background: '#fef9c3', color: '#854d0e' }}>
+          <Eye className="w-4 h-4 shrink-0" />
+          View only — you can look through this case, but changes here are limited to advocates.
+        </div>
+      )}
 
       {/* ── Tabs ── */}
       <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
@@ -864,7 +879,7 @@ export default function CaseDetailPage() {
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
                 <BookOpen className="w-4 h-4" /> Case Story
               </h3>
-              {storyDirty && (
+              {!readOnly && storyDirty && (
                 <button
                   onClick={saveStory}
                   disabled={storySaving}
@@ -880,8 +895,9 @@ export default function CaseDetailPage() {
               onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
               onBlur={() => { if (storyDirty) saveStory() }}
               rows={5}
+              readOnly={readOnly}
               placeholder="Paste the core story of the case here, so it's quick to check on the go…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50 cursor-default' : ''}`}
             />
           </section>
 
@@ -926,21 +942,23 @@ export default function CaseDetailPage() {
             <div className="mt-4 pt-4 border-t border-gray-100">
               <span className="block text-xs text-gray-500 mb-2">Lok Adalat</span>
               <div className="flex items-center gap-5">
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <label className={`flex items-center gap-2 text-sm text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     checked={caseData.lok_adalat_fit === true}
-                    onChange={(e) => setLokAdalatFit(e.target.checked ? true : null)}
+                    onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? true : null)}
+                    disabled={readOnly}
                     className="w-4 h-4 rounded border-gray-300"
                     style={{ accentColor: '#1e3a5f' }}
                   />
                   Fit for Lok Adalat
                 </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <label className={`flex items-center gap-2 text-sm text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     checked={caseData.lok_adalat_fit === false}
-                    onChange={(e) => setLokAdalatFit(e.target.checked ? false : null)}
+                    onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? false : null)}
+                    disabled={readOnly}
                     className="w-4 h-4 rounded border-gray-300"
                     style={{ accentColor: '#1e3a5f' }}
                   />
@@ -1014,12 +1032,14 @@ export default function CaseDetailPage() {
                 checked={caseData.payment_received}
                 saving={trackingSaving === 'payment_received'}
                 onChange={(v) => toggleCaseField('payment_received', v)}
+                disabled={readOnly}
               />
               <TrackingToggle
                 label="Company Case"
                 checked={caseData.is_company_case}
                 saving={trackingSaving === 'is_company_case'}
                 onChange={(v) => toggleCaseField('is_company_case', v)}
+                disabled={readOnly}
               />
               {caseData.is_company_case && (
                 <div className="pl-4 border-l-2 py-3 space-y-3" style={{ borderColor: '#dbeafe' }}>
@@ -1028,20 +1048,21 @@ export default function CaseDetailPage() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>
                     <button
                       type="button"
-                      onClick={() => setCompanyPickerOpen((v) => !v)}
-                      className="w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-left bg-white hover:border-gray-400 transition-colors"
+                      onClick={() => !readOnly && setCompanyPickerOpen((v) => !v)}
+                      disabled={readOnly}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-left transition-colors ${readOnly ? 'bg-gray-50 cursor-default' : 'bg-white hover:border-gray-400'}`}
                     >
                       <span className={caseData.client_name ? 'text-gray-900' : 'text-gray-400'}>
                         {caseData.client_name || 'Select a company…'}
                       </span>
                       {companySaving ? (
                         <Loader2 className="w-4 h-4 animate-spin text-gray-400 shrink-0" />
-                      ) : (
+                      ) : !readOnly && (
                         <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
                       )}
                     </button>
 
-                    {companyPickerOpen && (
+                    {companyPickerOpen && !readOnly && (
                       <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-hidden">
                         <div className="p-2 border-b border-gray-100">
                           <input
@@ -1097,6 +1118,7 @@ export default function CaseDetailPage() {
                     checked={caseData.documents_received}
                     saving={trackingSaving === 'documents_received'}
                     onChange={(v) => toggleCaseField('documents_received', v)}
+                    disabled={readOnly}
                   />
                 </div>
               )}
@@ -1105,12 +1127,14 @@ export default function CaseDetailPage() {
                 checked={caseData.bills_generated}
                 saving={trackingSaving === 'bills_generated'}
                 onChange={(v) => toggleCaseField('bills_generated', v)}
+                disabled={readOnly}
               />
               <TrackingToggle
                 label="Order Passed"
                 checked={caseData.order_passed}
                 saving={trackingSaving === 'order_passed'}
                 onChange={(v) => toggleCaseField('order_passed', v)}
+                disabled={readOnly}
               />
               {caseData.order_passed && (
                 <div className="pl-4 border-l-2 py-3" style={{ borderColor: '#dbeafe' }}>
@@ -1122,8 +1146,9 @@ export default function CaseDetailPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => toggleCaseField('order_sent_to_company', !caseData.order_sent_to_company)}
-                        className="relative w-11 h-6 rounded-full transition-colors"
+                        onClick={() => !readOnly && toggleCaseField('order_sent_to_company', !caseData.order_sent_to_company)}
+                        disabled={readOnly}
+                        className={`relative w-11 h-6 rounded-full transition-colors ${readOnly ? 'opacity-50 cursor-default' : ''}`}
                         style={{ background: caseData.order_sent_to_company ? '#1e3a5f' : '#e5e7eb' }}
                       >
                         <span
@@ -1141,7 +1166,8 @@ export default function CaseDetailPage() {
                       type="date"
                       value={orderDateDraft}
                       onChange={(e) => { setOrderDateDraft(e.target.value); saveOrderDate(e.target.value) }}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                      readOnly={readOnly}
+                      className={`px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50' : ''}`}
                     />
                   </div>
                 </div>
@@ -1151,6 +1177,7 @@ export default function CaseDetailPage() {
                 checked={caseData.appeal_filed}
                 saving={trackingSaving === 'appeal_filed'}
                 onChange={(v) => toggleCaseField('appeal_filed', v)}
+                disabled={readOnly}
               />
             </div>
           </section>
@@ -1164,23 +1191,25 @@ export default function CaseDetailPage() {
               Your arguments and supporting points for this case — add them one at a time as they come to you.
             </p>
 
-            <form onSubmit={addImportantPoint} className="flex flex-col sm:flex-row gap-3 mb-5">
-              <input
-                type="text"
-                value={newPointText}
-                onChange={(e) => setNewPointText(e.target.value)}
-                placeholder="Add a point…"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-              />
-              <button
-                type="submit"
-                disabled={addingPoint || !newPointText.trim()}
-                className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
-                style={{ background: '#1e3a5f' }}
-              >
-                <Plus className="w-4 h-4" /> Add
-              </button>
-            </form>
+            {!readOnly && (
+              <form onSubmit={addImportantPoint} className="flex flex-col sm:flex-row gap-3 mb-5">
+                <input
+                  type="text"
+                  value={newPointText}
+                  onChange={(e) => setNewPointText(e.target.value)}
+                  placeholder="Add a point…"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                />
+                <button
+                  type="submit"
+                  disabled={addingPoint || !newPointText.trim()}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </form>
+            )}
 
             {pointsLoading ? (
               <div className="flex justify-center py-8">
@@ -1196,7 +1225,7 @@ export default function CaseDetailPage() {
                       <p className="text-sm text-gray-800 whitespace-pre-wrap">{p.point_text}</p>
                       <p className="text-xs text-gray-400 mt-1">{formatDate(p.created_at)}</p>
                     </div>
-                    {deletePointId === p.id ? (
+                    {readOnly ? null : deletePointId === p.id ? (
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => deleteImportantPoint(p.id)}
@@ -1232,7 +1261,7 @@ export default function CaseDetailPage() {
       {activeTab === 'hearings' && (
         <div>
           {/* Add Hearing Button */}
-          {!showHearingForm && (
+          {!showHearingForm && !readOnly && (
             <button
               onClick={() => { resetHearingForm(); setShowHearingForm(true) }}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium mb-6"
@@ -1420,22 +1449,24 @@ export default function CaseDetailPage() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => startEditHearing(h)}
-                        className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteHearing(h.id)}
-                        className="p-1.5 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {!readOnly && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => startEditHearing(h)}
+                          className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteHearing(h.id)}
+                          className="p-1.5 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1448,6 +1479,7 @@ export default function CaseDetailPage() {
       {activeTab === 'documents' && (
         <div>
           {/* Upload Zone */}
+          {!readOnly && (
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
             <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
               <div>
@@ -1529,6 +1561,7 @@ export default function CaseDetailPage() {
               </p>
             </div>
           </div>
+          )}
 
           {/* Documents Grid */}
           {docsLoading ? (
@@ -1593,7 +1626,7 @@ export default function CaseDetailPage() {
                         </>
                       )}
                     </button>
-                    {deleteConfirmId === doc.id ? (
+                    {readOnly ? null : deleteConfirmId === doc.id ? (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => deleteDoc(doc.id, doc.storage_path)}
@@ -1649,6 +1682,8 @@ export default function CaseDetailPage() {
                   </a>
                 )}
               </div>
+            ) : readOnly ? (
+              <span className="text-sm text-gray-400">Not set</span>
             ) : (
               <form onSubmit={saveCnr} className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
                 <div className="flex-1 w-full sm:w-auto">
@@ -1692,6 +1727,7 @@ export default function CaseDetailPage() {
           </section>
 
           {/* Update from eCourts */}
+          {!readOnly && (
           <section className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
               Update from eCourts
@@ -1748,6 +1784,7 @@ export default function CaseDetailPage() {
               </button>
             </form>
           </section>
+          )}
         </div>
       )}
     </div>
@@ -1766,12 +1803,13 @@ function Field({ label, value }: { label: string; value: string | null | undefin
 
 // ───── Reusable tracking toggle switch ─────
 function TrackingToggle({
-  label, checked, saving, onChange,
+  label, checked, saving, onChange, disabled,
 }: {
   label: string
   checked: boolean
   saving: boolean
   onChange: (v: boolean) => void
+  disabled?: boolean
 }) {
   return (
     <div className="flex items-center justify-between gap-3 py-3">
@@ -1782,8 +1820,9 @@ function TrackingToggle({
           type="button"
           role="switch"
           aria-checked={checked}
-          onClick={() => onChange(!checked)}
-          className="relative w-11 h-6 rounded-full transition-colors"
+          onClick={() => !disabled && onChange(!checked)}
+          disabled={disabled}
+          className={`relative w-11 h-6 rounded-full transition-colors ${disabled ? 'opacity-50 cursor-default' : ''}`}
           style={{ background: checked ? '#1e3a5f' : '#e5e7eb' }}
         >
           <span
