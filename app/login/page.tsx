@@ -3,6 +3,11 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+// Junior accounts log in with a plain username rather than a real email
+// address (none were collected for them) — this is the internal-only
+// domain their username gets mapped to before hitting Supabase Auth.
+const USERNAME_DOMAIN = 'advocatehub.internal'
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -14,8 +19,12 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
+    const identifier = email.trim().includes('@')
+      ? email.trim()
+      : `${email.trim().toLowerCase()}@${USERNAME_DOMAIN}`
+
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({ email: identifier, password })
 
     if (error) {
       setError(error.message)
@@ -37,15 +46,17 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username or Email</label>
             <input
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoCapitalize="none"
+              autoCorrect="off"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 text-gray-900"
               style={{ outlineColor: '#1e3a5f' }}
-              placeholder="your@email.com"
+              placeholder="your username or your@email.com"
             />
           </div>
 
