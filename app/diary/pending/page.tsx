@@ -35,6 +35,7 @@ export default function PendingPage() {
   const [stage, setStage] = useState<Record<string, string>>({})
   const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
   const [history, setHistory] = useState<Record<string, string[]>>({}) // caseId -> last 3 hearing dates, newest first
+  const [me, setMe] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -43,8 +44,9 @@ export default function PendingPage() {
     const today = format(new Date(), 'yyyy-MM-dd')
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const { data: adv } = await supabase.from('advocates').select('id').eq('user_id', user.id).limit(1).single()
+    const { data: adv } = await supabase.from('advocates').select('id, full_name').eq('user_id', user.id).limit(1).single()
     if (!adv) return
+    setMe({ id: adv.id, name: adv.full_name })
 
     const { data: cc } = await supabase.from('custom_courts').select('id, name, short_name, builtin_code')
     setCustomCourts((cc as CustomCourtRow[]) || [])
@@ -119,6 +121,8 @@ export default function PendingPage() {
     await supabase.from('hearings').update({
       next_hearing_date: nd,
       ...(sg !== undefined ? { stage_on_date: sg || null } : {}),
+      set_by_advocate_id: me?.id || null,
+      set_by_name: me?.name || null,
     }).eq('id', item.hearingId)
 
     // Check if a hearing already exists for that next date
@@ -131,6 +135,8 @@ export default function PendingPage() {
         previous_hearing_date: item.hearingDate,
         appearing_advocate_name: 'self',
         happened: false,
+        set_by_advocate_id: me?.id || null,
+        set_by_name: me?.name || null,
       })
     }
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   CalendarDays,
   Briefcase,
@@ -50,11 +50,25 @@ function getAppUrl(app: typeof myApps[0]): string {
   return `${app.baseUrl}${app.loginPath}?key=${SSO_KEY}&redirect=${app.defaultPath}`
 }
 
+// Junior advocates only get the diary + case lookup — everything else
+// (client lists, courts, empanelment, filters/reports, editing) is off
+// limits. They can still open a case (to set a hearing date) via a link
+// from either of those, just not the bare case list or edit form.
+const JUNIOR_ALLOWED_PREFIXES = ['/diary/find']
+function isAllowedForJunior(pathname: string): boolean {
+  if (pathname === '/diary') return true
+  if (pathname.startsWith('/diary/date/')) return true
+  if (/^\/diary\/cases\/[^/]+$/.test(pathname)) return true // case detail only
+  return JUNIOR_ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
 export default function DiaryLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [advocateName, setAdvocateName] = useState('')
+  const [role, setRole] = useState<'advocate' | 'junior' | null>(null)
   const [appSwitcherOpen, setAppSwitcherOpen] = useState(false)
   const pathname = usePathname()
+  const router = useRouter()
   const appSwitcherRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,16 +78,32 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
       if (user) {
         const { data } = await supabase
           .from('advocates')
-          .select('full_name')
+          .select('full_name, role')
           .eq('user_id', user.id)
           .limit(1)
           .single()
-        if (data) setAdvocateName(data.full_name)
-        else setAdvocateName(user.email || '')
+        if (data) {
+          setAdvocateName(data.full_name)
+          setRole((data.role as 'advocate' | 'junior') || 'advocate')
+        } else {
+          setAdvocateName(user.email || '')
+          setRole('advocate')
+        }
       }
     }
     loadProfile()
   }, [])
+
+  // Bounce juniors out of anything outside their allowed pages
+  useEffect(() => {
+    if (role === 'junior' && !isAllowedForJunior(pathname)) {
+      router.replace('/diary')
+    }
+  }, [role, pathname, router])
+
+  const visibleNavItems = role === 'junior'
+    ? navItems.filter((item) => item.href === '/diary' || item.href === '/diary/find')
+    : navItems
 
   // Close app switcher on outside click
   useEffect(() => {
@@ -118,7 +148,7 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
         </div>
 
         <nav className="p-4 space-y-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = pathname === item.href ||
               (item.href !== '/diary' && pathname.startsWith(item.href))
             const Icon = item.icon

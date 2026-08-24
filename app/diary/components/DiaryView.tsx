@@ -88,6 +88,7 @@ interface HearingRow {
   happened: boolean
   adjournment_reason: string | null
   outcome_notes: string | null
+  set_by_name: string | null
 }
 
 interface HearingWithCase extends HearingRow {
@@ -344,7 +345,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   async function saveStage(hearingId: string, newStage: string) {
     const supabase = createClient()
-    await supabase.from('hearings').update({ stage_on_date: newStage }).eq('id', hearingId)
+    await supabase.from('hearings').update({
+      stage_on_date: newStage,
+      set_by_advocate_id: advocateId,
+      set_by_name: advocateName || null,
+    }).eq('id', hearingId)
     const hearing = hearings.find(h => h.id === hearingId)
     if (hearing) {
       const updates: Record<string, string> = { case_stage: newStage }
@@ -353,13 +358,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     }
     setEditingStage(null)
     // Optimistic update — no refetch, no scroll jump
-    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage } : h))
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage, set_by_name: advocateName || null } : h))
   }
 
   async function saveNextDate(hearingId: string, newDate: string) {
     const supabase = createClient()
     const hearing = hearings.find(h => h.id === hearingId)
-    await supabase.from('hearings').update({ next_hearing_date: newDate || null }).eq('id', hearingId)
+    await supabase.from('hearings').update({
+      next_hearing_date: newDate || null,
+      set_by_advocate_id: advocateId,
+      set_by_name: advocateName || null,
+    }).eq('id', hearingId)
     if (newDate && hearing) {
       const { data: existing } = await supabase
         .from('hearings').select('id').eq('case_id', hearing.case_id).eq('hearing_date', newDate).limit(1)
@@ -371,12 +380,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           stage_on_date: hearing.stage_on_date,
           appearing_advocate_name: hearing.appearing_advocate_name || 'self',
           happened: false,
+          set_by_advocate_id: advocateId,
+          set_by_name: advocateName || null,
         })
       }
     }
     setEditingNextDate(null)
     // Optimistic update — no refetch, no scroll jump
-    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, next_hearing_date: newDate || null } : h))
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, next_hearing_date: newDate || null, set_by_name: advocateName || null } : h))
   }
 
   async function saveComment(hearingId: string) {
@@ -902,9 +913,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             <button
                               onClick={() => setEditingNextDate(h.id)}
                               className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
-                              title="Click to set next date"
+                              title={h.set_by_name ? `Set by ${h.set_by_name}` : 'Click to set next date'}
                             >
                               {formatDD_MM(h.next_hearing_date) || <span className="text-gray-300">—</span>}
+                              {h.next_hearing_date && h.set_by_name && (
+                                <span className="block text-[9px] font-sans text-gray-400 normal-case">by {h.set_by_name.split(' ')[0]}</span>
+                              )}
                             </button>
                           )}
                         </td>
@@ -1110,14 +1124,19 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                       {isFinalStage(h.stage_on_date) ? (
                         <div className="w-full px-3 py-2.5 border border-gray-100 rounded-lg text-sm text-gray-300 bg-gray-50" style={{ minHeight: '44px' }}>—</div>
                       ) : (
-                        <input
-                          type="date"
-                          defaultValue={h.next_hearing_date || ''}
-                          onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
-                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                          style={{ minHeight: '44px' }}
-                        />
+                        <>
+                          <input
+                            type="date"
+                            defaultValue={h.next_hearing_date || ''}
+                            onBlur={(e) => { if (e.target.value && e.target.value !== h.next_hearing_date) saveNextDate(h.id, e.target.value) }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                            style={{ minHeight: '44px' }}
+                          />
+                          {h.next_hearing_date && h.set_by_name && (
+                            <p className="text-[10px] text-gray-400 mt-1">Set by {h.set_by_name}</p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

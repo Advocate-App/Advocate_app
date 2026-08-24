@@ -92,6 +92,7 @@ interface Hearing {
   adjournment_reason: string | null
   outcome_notes: string | null
   created_at: string
+  set_by_name: string | null
 }
 
 interface CaseDocument {
@@ -170,6 +171,7 @@ export default function CaseDetailPage() {
   // Core state
   const [caseData, setCaseData] = useState<CaseRecord | null>(null)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
+  const [advocateName, setAdvocateName] = useState('')
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
@@ -249,11 +251,11 @@ export default function CaseDetailPage() {
       // Get advocate_id
       const { data: advRows } = await supabase
         .from('advocates')
-        .select('id')
+        .select('id, full_name')
         .eq('user_id', user.id)
         .limit(1)
       const adv = advRows?.[0] || null
-      if (adv) setAdvocateId(adv.id)
+      if (adv) { setAdvocateId(adv.id); setAdvocateName(adv.full_name || '') }
 
       // Fetch case by ID
       const { data: c, error } = await supabase
@@ -376,6 +378,8 @@ export default function CaseDetailPage() {
       appearing_advocate_name: hearingForm.appearing_advocate_name || 'self',
       outcome_notes: hearingForm.outcome_notes || null,
       happened: hearingForm.happened,
+      set_by_advocate_id: advocateId,
+      set_by_name: advocateName || null,
     }
 
     if (editingHearingId) {
@@ -407,6 +411,8 @@ export default function CaseDetailPage() {
           stage_on_date: hearingForm.stage_on_date || null,
           appearing_advocate_name: hearingForm.appearing_advocate_name || 'self',
           happened: false,
+          set_by_advocate_id: advocateId,
+          set_by_name: advocateName || null,
         })
       }
     }
@@ -1402,6 +1408,7 @@ export default function CaseDetailPage() {
                       {h.next_hearing_date && (
                         <p className="text-sm text-gray-600">
                           <span className="text-gray-400">Next date:</span> {formatDate(h.next_hearing_date)}
+                          {h.set_by_name && <span className="text-gray-400"> — set by {h.set_by_name}</span>}
                         </p>
                       )}
                       {h.outcome_notes && (
