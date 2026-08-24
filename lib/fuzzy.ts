@@ -26,25 +26,55 @@ export function levenshtein(a: string, b: string): number {
 }
 
 /**
- * Does `needle` appear in `haystack`? Checks a plain substring first
- * (cheap and exact), then falls back to comparing `needle` against each
- * word in `haystack` so small typos still match ("gitika" ~ "Geetika").
+ * How many typos we tolerate in a whole-word match, scaled to word length.
+ * Deliberately strict for short words — a 2-edit budget on a 3-4 letter
+ * word (like "avi" or "jain") lets it match almost anything, which is what
+ * caused unrelated cases to outrank real ones.
  */
-export function fuzzyMatch(needle: string, haystack: string, maxDistanceRatio = 0.34): boolean {
+function editThreshold(len: number): number {
+  if (len <= 5) return 1
+  if (len <= 9) return 2
+  return 3
+}
+
+/**
+ * Scores how well `needle` matches `haystack`, lower = better, or `null`
+ * if it doesn't match at all. Used both to filter (null = excluded) and to
+ * rank results (sort ascending by score) so an exact/whole-word hit always
+ * outranks a loose typo-tolerant one.
+ *
+ *   0        exact whole-word match          "avi"    == "Avi"
+ *   1        a word starts with needle        "avi"    ~  "avinash"
+ *   2        plain substring anywhere         "avi"    ~  "bhavari" (mid-word)
+ *   3 + dist typo-tolerant whole-word match    "gitika" ~  "Geetika" (dist 2 -> 5)
+ */
+export function matchScore(needle: string, haystack: string): number | null {
   const n = needle.trim().toLowerCase()
   const h = haystack.trim().toLowerCase()
-  if (!n) return false
-  if (h.includes(n)) return true
+  if (!n) return null
 
-  const threshold = Math.max(1, Math.ceil(n.length * maxDistanceRatio))
-  return h.split(/\s+/).some((word) => {
-    const w = word.replace(/[(),.]/g, '')
-    if (!w) return false
-    // Skip words whose length is wildly different -- avoids a short query
-    // "matching" every unrelated long word within the edit-distance budget.
-    if (Math.abs(w.length - n.length) > threshold) return false
-    return levenshtein(n, w) <= threshold
-  })
+  const words = h.split(/\s+/).map((w) => w.replace(/[(),.]/g, '')).filter(Boolean)
+
+  if (words.includes(n)) return 0
+  if (words.some((w) => w.startsWith(n))) return 1
+  if (h.includes(n)) return 2
+
+  const threshold = editThreshold(n.length)
+  let best: number | null = null
+  for (const w of words) {
+    if (Math.abs(w.length - n.length) > threshold) continue
+    const d = levenshtein(n, w)
+    if (d <= threshold) {
+      const score = 3 + d
+      if (best === null || score < best) best = score
+    }
+  }
+  return best
+}
+
+/** Does `needle` appear in `haystack` at all (exact, substring, or typo-tolerant)? */
+export function fuzzyMatch(needle: string, haystack: string): boolean {
+  return matchScore(needle, haystack) !== null
 }
 
 export interface SuggestOptions {

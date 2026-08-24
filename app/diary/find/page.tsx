@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCourtShortLabel, formatCaseNumber } from '@/lib/constants/courts'
-import { fuzzyMatch, suggestCorrections } from '@/lib/fuzzy'
+import { matchScore, suggestCorrections } from '@/lib/fuzzy'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Link from 'next/link'
 import { Search, X, Sparkles, ArrowRight } from 'lucide-react'
@@ -81,14 +81,31 @@ export default function FindCasePage() {
 
   const terms = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query])
 
+  // Ranked, not just filtered — an exact/whole-word hit always outranks a
+  // loose typo-tolerant one, so the right case shows up first.
   const results = useMemo(() => {
     if (terms.length === 0) return []
-    return allCases.filter((c) => {
+    const scored: { row: CaseRow; score: number }[] = []
+    for (const c of allCases) {
       const fields = [
         c.case_number, c.party_plaintiff, c.party_defendant, c.client_name, c.court_name,
       ].filter(Boolean) as string[]
-      return terms.every((term) => fields.some((f) => fuzzyMatch(term, f)))
-    })
+
+      let total = 0
+      let matchedAll = true
+      for (const term of terms) {
+        let best: number | null = null
+        for (const f of fields) {
+          const s = matchScore(term, f)
+          if (s !== null && (best === null || s < best)) best = s
+        }
+        if (best === null) { matchedAll = false; break }
+        total += best
+      }
+      if (matchedAll) scored.push({ row: c, score: total })
+    }
+    scored.sort((a, b) => a.score - b.score)
+    return scored.map((s) => s.row)
   }, [allCases, terms])
 
   // "Did you mean…" -- shown below the exact results (or instead of them,

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getCourtShortLabel, formatCaseNumber } from '@/lib/constants/courts'
-import { fuzzyMatch } from '@/lib/fuzzy'
+import { matchScore } from '@/lib/fuzzy'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Link from 'next/link'
 import { Search, ChevronLeft, ChevronRight, Plus, X, SlidersHorizontal } from 'lucide-react'
@@ -160,7 +160,7 @@ export default function AllCasesPage() {
   const filtered = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
 
-    return allCases.filter((c) => {
+    const passesFilters = (c: CaseRow) => {
       if (courtFilter !== 'all' && (c.court_code || c.court_name) !== courtFilter) return false
       if (cityFilter !== 'all' && c.city !== cityFilter) return false
       if (statusFilter !== 'all' && c.status !== statusFilter) return false
@@ -170,14 +170,36 @@ export default function AllCasesPage() {
       if (!triMatch(billsFilter, c.bills_generated)) return false
       if (!triMatch(orderFilter, c.order_passed)) return false
       if (!triMatch(appealFilter, c.appeal_filed)) return false
+      return true
+    }
 
-      if (terms.length === 0) return true
+    if (terms.length === 0) return allCases.filter(passesFilters)
+
+    // Ranked, not just filtered — an exact/whole-word hit always outranks a
+    // loose typo-tolerant one, so the right case shows up first.
+    const scored: { row: CaseRow; score: number }[] = []
+    for (const c of allCases) {
+      if (!passesFilters(c)) continue
       const fields = [
         c.case_number, c.party_plaintiff, c.party_defendant, c.client_name,
         c.case_stage, c.case_type, c.court_name,
       ].filter(Boolean) as string[]
-      return terms.every((term) => fields.some((f) => fuzzyMatch(term, f)))
-    })
+
+      let total = 0
+      let matchedAll = true
+      for (const term of terms) {
+        let best: number | null = null
+        for (const f of fields) {
+          const s = matchScore(term, f)
+          if (s !== null && (best === null || s < best)) best = s
+        }
+        if (best === null) { matchedAll = false; break }
+        total += best
+      }
+      if (matchedAll) scored.push({ row: c, score: total })
+    }
+    scored.sort((a, b) => a.score - b.score)
+    return scored.map((s) => s.row)
   }, [allCases, query, courtFilter, cityFilter, statusFilter, companyFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
