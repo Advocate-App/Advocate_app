@@ -208,29 +208,29 @@ export default function PrintSlipPage() {
           padding-bottom: 1.5mm;
           margin-bottom: 1.5mm;
         }
-        .header-oneliner { font-size: 10px; font-weight: bold; }
+        .header-oneliner { font-size: 12px; font-weight: bold; }
         .cases { list-style: none; margin: 0; padding: 0; }
         .case-row {
           display: flex;
           align-items: baseline;
           gap: 2mm;
-          padding: 1mm 0;
+          padding: 1.2mm 0;
           border-bottom: 0.3px dotted #ccc;
-          font-size: 9px;
+          font-size: 11px;
           line-height: 1.4;
         }
         .case-row:last-child { border-bottom: none; }
         .sr { min-width: 4mm; font-weight: bold; color: #555; flex-shrink: 0; }
         .court { font-weight: bold; flex-shrink: 0; min-width: 12mm; }
         .sep { color: #aaa; flex-shrink: 0; }
-        .caseno { font-family: monospace; font-size: 8.5px; flex-shrink: 0; }
+        .caseno { font-family: monospace; font-size: 10.5px; flex-shrink: 0; }
         .parties { color: #222; }
         .footer {
           margin-top: 2mm;
           padding-top: 1.5mm;
           border-top: 0.5px solid #bbb;
           text-align: center;
-          font-size: 7px;
+          font-size: 9px;
           color: #888;
         }
         .print-btn {

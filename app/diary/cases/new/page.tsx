@@ -21,7 +21,7 @@ import Link from 'next/link'
 // ---------------------------------------------------------------------------
 type CourtLevel = 'district' | 'high_court'
 
-interface CustomCourt { id: string; name: string; city: string | null }
+interface CustomCourt { id: string; name: string; city: string | null; builtin_code: string | null }
 interface ClientRecord { id: string; name: string; phone: string | null; email: string | null; city: string | null }
 
 interface FormData {
@@ -482,10 +482,17 @@ export default function NewCasePage() {
   // ---------------------------------------------------------------------------
   const isDistrict = form.court_level === 'district'
 
+  // Rows with a builtin_code are just a short-name override for one of the
+  // DISTRICT_COURTS entries above (set from the Courts settings page) — not
+  // a genuinely separate court. Listing them again here under "My Courts"
+  // let people pick the same court twice under two different codes, which
+  // silently split its cases in two.
+  const genuinelyCustomCourts = customCourts.filter(c => !c.builtin_code)
+
   const allCourtOptions = [
     ...DISTRICT_COURTS.map(c => ({ value: c.code, label: `${c.name}${c.district ? ` (${c.district})` : ''}` })),
-    ...(customCourts.length > 0 ? [{ value: '__HEADER__', label: 'My Courts' }] : []),
-    ...customCourts.map(c => ({ value: `CUSTOM_${c.id}`, label: c.name, sub: c.city || '' })),
+    ...(genuinelyCustomCourts.length > 0 ? [{ value: '__HEADER__', label: 'My Courts' }] : []),
+    ...genuinelyCustomCourts.map(c => ({ value: `CUSTOM_${c.id}`, label: c.name, sub: c.city || '' })),
     { value: '__ACTION__', label: 'Add custom court…' },
   ]
 
