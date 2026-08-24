@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { saveRefreshToken } from '@/lib/gmail'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -14,13 +15,23 @@ export async function GET(request: Request) {
     )
   }
 
-  const clientId = state === 'avi'
-    ? process.env.GOOGLE_CLIENT_ID_AVI!
-    : process.env.GOOGLE_CLIENT_ID_RATNESH!
+  // Must match whichever client ID /api/gmail/authorize actually sent to
+  // Google (DB-stored one takes priority there too) — the token exchange
+  // fails if the client here doesn't match the one that issued the code.
+  const supabase = createAdminClient()
+  const { data: tokenRow } = await supabase
+    .from('gmail_tokens')
+    .select('client_id, client_secret')
+    .eq('account', state)
+    .maybeSingle()
 
-  const clientSecret = state === 'avi'
+  const clientId = tokenRow?.client_id || (state === 'avi'
+    ? process.env.GOOGLE_CLIENT_ID_AVI!
+    : process.env.GOOGLE_CLIENT_ID_RATNESH!)
+
+  const clientSecret = tokenRow?.client_secret || (state === 'avi'
     ? process.env.GOOGLE_CLIENT_SECRET_AVI!
-    : process.env.GOOGLE_CLIENT_SECRET_RATNESH!
+    : process.env.GOOGLE_CLIENT_SECRET_RATNESH!)
 
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',

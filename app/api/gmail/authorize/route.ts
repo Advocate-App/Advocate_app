@@ -1,12 +1,25 @@
 import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const account = searchParams.get('account') || 'ratnesh'
 
-  const clientId = account === 'avi'
+  // Prefer whatever client ID is already stored in the DB from a past
+  // successful authorization — that's the one Google actually has a
+  // registered redirect URI for. The env var can drift out of sync
+  // (e.g. if the Google Cloud OAuth client was ever recreated) and using
+  // the wrong one is exactly what causes a redirect_uri_mismatch.
+  const supabase = createAdminClient()
+  const { data: tokenRow } = await supabase
+    .from('gmail_tokens')
+    .select('client_id')
+    .eq('account', account)
+    .maybeSingle()
+
+  const clientId = tokenRow?.client_id || (account === 'avi'
     ? process.env.GOOGLE_CLIENT_ID_AVI
-    : process.env.GOOGLE_CLIENT_ID_RATNESH
+    : process.env.GOOGLE_CLIENT_ID_RATNESH)
 
   if (!clientId) {
     return NextResponse.json({ error: `No client ID found for account: ${account}`, env_keys: Object.keys(process.env).filter(k => k.includes('GOOGLE')) })
