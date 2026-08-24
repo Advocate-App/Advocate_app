@@ -33,6 +33,7 @@ export default function PendingPage() {
   const [nextDate, setNextDate] = useState<Record<string, string>>({})
   const [stage, setStage] = useState<Record<string, string>>({})
   const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
+  const [history, setHistory] = useState<Record<string, string[]>>({}) // caseId -> last 3 hearing dates, newest first
 
   useEffect(() => { load() }, [])
 
@@ -81,6 +82,24 @@ export default function PendingPage() {
     }
 
     setItems(rows)
+
+    // Last 3 hearing dates per case, so it's easier to recognize the case
+    // and judge what date to give next
+    if (rows.length > 0) {
+      const { data: hist } = await supabase
+        .from('hearings')
+        .select('case_id, hearing_date')
+        .in('case_id', rows.map(r => r.caseId))
+        .order('hearing_date', { ascending: false })
+
+      const byCase: Record<string, string[]> = {}
+      for (const h of (hist as { case_id: string; hearing_date: string }[]) || []) {
+        if (!byCase[h.case_id]) byCase[h.case_id] = []
+        if (byCase[h.case_id].length < 3) byCase[h.case_id].push(h.hearing_date)
+      }
+      setHistory(byCase)
+    }
+
     setLoading(false)
   }
 
@@ -165,11 +184,15 @@ export default function PendingPage() {
                   <span className="font-mono text-sm text-gray-600">
                     {item.caseNumber}{item.caseYear ? `/${item.caseYear}` : ''}
                   </span>
-                  <span className="text-xs text-gray-400 ml-auto">Last heard {format(new Date(item.hearingDate), 'd MMM yy')}</span>
                 </div>
-                <p className="text-base text-gray-800 mb-3">
+                <p className="text-base text-gray-800 mb-2">
                   {item.plaintiff} <span className="text-gray-400">vs</span> {item.defendant}
                 </p>
+                <div className="text-xs text-gray-400 mb-3">
+                  {(history[item.caseId] || [item.hearingDate]).map((d, i) => (
+                    <div key={d}>{i === 0 ? 'Last heard: ' : ''}{format(new Date(d), 'd MMM yy')}</div>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Stage</label>
@@ -225,7 +248,7 @@ export default function PendingPage() {
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-20">Court</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-24">Case No.</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500">Parties</th>
-                <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-28">Last Heard</th>
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-28">Previous Dates</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-36">Stage</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-32">Next Date *</th>
                 <th className="px-3 py-2.5 w-32"></th>
@@ -251,8 +274,10 @@ export default function PendingPage() {
                       <div className="truncate">{item.plaintiff}</div>
                       <div className="truncate text-xs text-gray-400">vs {item.defendant}</div>
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-500 font-mono">
-                      {format(new Date(item.hearingDate), 'd MMM yy')}
+                    <td className="px-3 py-2.5 text-xs text-gray-500 font-mono leading-relaxed">
+                      {(history[item.caseId] || [item.hearingDate]).map((d) => (
+                        <div key={d}>{format(new Date(d), 'd MMM yy')}</div>
+                      ))}
                     </td>
                     <td className="px-3 py-2.5">
                       <select
