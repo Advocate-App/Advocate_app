@@ -159,9 +159,9 @@ export default function ClosedCasesPage() {
                 {/* Cases */}
                 <div className="divide-y divide-gray-100">
                   {sec.items.map(h => (
-                    <div key={h.id} className="px-4 py-3 flex items-start gap-3 bg-white/70">
+                    <div key={h.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 bg-white/70">
                       {/* Date */}
-                      <div className="w-16 shrink-0 text-center">
+                      <div className="sm:w-16 shrink-0 flex items-center gap-2 sm:flex-col sm:text-center">
                         <div className="text-xs font-mono text-gray-500">{formatDate(h.hearing_date)}</div>
                         <div className="text-[10px] text-gray-400">{h.stage_on_date}</div>
                       </div>
@@ -174,7 +174,7 @@ export default function ClosedCasesPage() {
                         </div>
                         <Link
                           href={`/diary/cases/${h.case_id}`}
-                          className="text-sm font-semibold hover:underline block truncate"
+                          className="text-base sm:text-sm font-semibold hover:underline block truncate"
                           style={{ color: '#1e3a5f' }}
                         >
                           {h.party_plaintiff} <span className="text-gray-400 font-normal">vs</span> {h.party_defendant}
@@ -192,14 +192,14 @@ export default function ClosedCasesPage() {
                             >Clear</button>
                           </div>
                         ) : (
-                          <div className="flex flex-wrap gap-1 justify-end">
+                          <div className="flex flex-wrap gap-1 sm:justify-end">
                             {saving === h.id ? (
                               <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                             ) : QUICK_ACTIONS.map(action => (
                               <button
                                 key={action}
                                 onClick={() => setAction(h.id, action)}
-                                className="text-[10px] px-2 py-0.5 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap"
+                                className="text-xs px-2.5 py-1 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap"
                               >
                                 {action}
                               </button>

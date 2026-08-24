@@ -1049,14 +1049,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               return (
                 <div key={h.id} className="bg-white rounded-xl border border-gray-200 p-4" style={{ borderLeft: `4px solid ${borderColor}` }}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block px-2.5 py-0.5 rounded text-sm font-medium text-gray-700" style={{ background: courtBg }}>
+                    <span className="inline-block px-2.5 py-1 rounded text-base font-semibold text-gray-700" style={{ background: courtBg }}>
                       {customCourtMap[courtCode] || getCourtLabel(courtCode || h.caseData.court_name)}
                     </span>
-                    <span className="text-sm font-mono text-gray-500">
+                    <span className="text-base font-mono font-semibold text-gray-600">
                       {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                     </span>
                   </div>
-                  <Link href={`/diary/cases/${h.case_id}`} className="block text-base font-semibold mb-2 hover:underline" style={{ color: '#1e3a5f' }}>
+                  <Link href={`/diary/cases/${h.case_id}`} className="block text-lg leading-snug font-semibold mb-2 hover:underline" style={{ color: '#1e3a5f' }}>
                     {h.caseData.party_plaintiff} <span className="text-gray-400 font-normal">vs</span> {h.caseData.party_defendant}
                   </Link>
                   <div className="text-sm text-gray-500 mb-2">

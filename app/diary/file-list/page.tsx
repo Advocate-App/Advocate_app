@@ -3,148 +3,121 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, parseISO } from 'date-fns'
-import { formatCaseNumber, getCourtShortLabel } from '@/lib/constants/courts'
 import { Printer, Search } from 'lucide-react'
 
 interface CaseRow {
   id: string
   court_code: string
   court_name: string
-  case_number: string
+  case_number: string | null
   case_year: number | null
   party_plaintiff: string
   party_defendant: string
   client_name: string | null
+  is_company_case: boolean
+  case_stage: string | null
   hearing_date: string
 }
-
-interface CustomCourtRow {
-  id: string
-  name: string
-  short_name: string | null
-  builtin_code: string | null
-}
-
-function courtLabelFor(code: string, fallbackName: string, customCourts: CustomCourtRow[]): string {
-  const override = customCourts.find((c) => (c.builtin_code || `CUSTOM_${c.id}`) === code)
-  if (override) return override.short_name || override.name
-  const builtin = getCourtShortLabel(code)
-  return builtin && builtin !== code ? builtin : fallbackName
-}
-
-// Court code group classification
-const MACT_LC_WC = (c: string) =>
-  c.startsWith('MACT') || c.startsWith('LC') || c.startsWith('WC')
-
-const DCF_STATECOMM = (c: string) =>
-  c.startsWith('DCF') || c === 'STATE_COMM'
-
-const NI = (c: string) =>
-  c.startsWith('NI')
-
-const CIVIL_CRIMINAL = (c: string) =>
-  c.startsWith('CJM') || c.startsWith('ACJM') || c.startsWith('DJ') ||
-  c.startsWith('ADJ') || c === 'GRAM_NAYALAY' || c.startsWith('PCPNDT') ||
-  c.startsWith('SESS') || c.startsWith('PLA') || c.startsWith('SAMB')
-
-const PRIVATE_LABELS = new Set(['private', 'personal', 'nil', 'n/a', 'none', '-', ''])
-const isPersonal = (row: CaseRow) =>
-  !row.client_name || PRIVATE_LABELS.has(row.client_name.trim().toLowerCase())
 
 function today() {
   return format(new Date(), 'yyyy-MM-dd')
 }
 
 function fmtDate(d: string) {
-  try { return format(parseISO(d), 'dd/MM/yy') } catch { return d }
+  try { return format(parseISO(d), 'EEE, d MMM yyyy') } catch { return d }
 }
 
-const CITY_ORDER = ['Udaipur', 'Dungarpur', 'Banswara', 'Rajsamand', 'Nathdwara', 'Other']
-const CITY_COLORS: Record<string, string> = {
-  Udaipur: 'text-blue-700',
-  Dungarpur: 'text-emerald-700',
-  Banswara: 'text-orange-700',
-  Rajsamand: 'text-purple-700',
-  Nathdwara: 'text-rose-700',
-  Other: 'text-gray-600',
+function shortCaseNumber(c: CaseRow): string {
+  if (!c.case_number) return ''
+  const yr = c.case_year ? `/${String(c.case_year).slice(-2)}` : ''
+  return `${c.case_number}${yr}`
 }
 
-function getCity(code: string): string {
-  const c = code.toUpperCase()
-  if (c.includes('_DGP') || c.includes('_DPR') || c.includes('_DNP')) return 'Dungarpur'
-  if (c.includes('_BSW') || c.includes('_BNS') || c.includes('_BNW')) return 'Banswara'
-  if (c.includes('_RJM') || c.includes('_RSM') || c.includes('_RAJ')) return 'Rajsamand'
-  if (c.includes('_NDW') || c.includes('_NTH') || c.includes('_NAT')) return 'Nathdwara'
-  if (c.includes('_UDR') || c.includes('_UDJ') || c.includes('_UDB')) return 'Udaipur'
-  // fallback: if no suffix matches, assume Udaipur for common codes
-  if (c.startsWith('MACT') || c.startsWith('DCF') || c.startsWith('NI') ||
-      c.startsWith('CJM') || c.startsWith('ACJM') || c.startsWith('DJ') ||
-      c.startsWith('ADJ') || c.startsWith('LC') || c.startsWith('WC') ||
-      c.startsWith('SESS') || c.startsWith('PLA') || c === 'GRAM_NAYALAY' ||
-      c === 'STATE_COMM') return 'Udaipur'
-  return 'Other'
+function isMactOrWc(courtCode: string): boolean {
+  const c = (courtCode || '').toUpperCase()
+  return c.startsWith('MACT') || c.startsWith('WC') || c.includes('_MACT') || c.includes('_WC')
 }
 
-function CaseList({ cases, showDate, customCourts }: { cases: CaseRow[]; showDate?: boolean; customCourts: CustomCourtRow[] }) {
-  if (cases.length === 0) return <p className="text-xs text-gray-400 italic pl-2">None</p>
+function normalizeCompany(name: string): string {
+  const n = name.trim().toLowerCase()
+  if (n.includes('icici')) return 'ICICI'
+  if (n.includes('hdfc')) return 'HDFC'
+  if (n.includes('sbi') || n.includes('state bank')) return 'SBI'
+  if (n.includes('bajaj')) return 'Bajaj'
+  if (n.includes('tata')) return 'Tata'
+  if (n.includes('new india')) return 'New India Assurance'
+  if (n.includes('national insurance') || n.includes('national general')) return 'National Insurance'
+  if (n.includes('oriental')) return 'Oriental Insurance'
+  if (n.includes('united')) return 'United India Insurance'
+  if (n.includes('universal sompo') || n.includes('sompo')) return 'Universal Sompo'
+  if (n.includes('reliance')) return 'Reliance'
+  if (n.includes('cholamandalam') || n.includes('chola')) return 'Cholamandalam'
+  if (n.includes('royal sundaram')) return 'Royal Sundaram'
+  if (n.includes('future generali') || n.includes('future genarali')) return 'Future Generali'
+  if (n.includes('iffco')) return 'IFFCO-Tokio'
+  if (n.includes('star health')) return 'Star Health'
+  if (n.includes('niva bupa')) return 'Niva Bupa'
+  if (n.includes('go digit') || n.includes('digit')) return 'Go Digit'
+  if (n.includes('care health')) return 'Care Health'
+  if (n.includes('lic') || n.includes('life insurance corporation')) return 'LIC'
+  if (n.includes('punjab national') || n.includes('pnb')) return 'PNB'
+  if (n.includes('bank of baroda')) return 'Bank of Baroda'
+  if (n.includes('bank of india')) return 'Bank of India'
+  if (n.includes('canara')) return 'Canara Bank'
+  if (n.includes('union bank')) return 'Union Bank'
+  if (n.includes('axis bank')) return 'Axis Bank'
+  if (n.includes('kotak')) return 'Kotak'
+  if (n.includes('indusind')) return 'IndusInd Bank'
+  if (n.includes('shriram')) return 'Shriram'
+  if (n.includes('mahindra finance') || n.includes('m&m fin')) return 'Mahindra Finance'
+  if (n.includes('muthoot')) return 'Muthoot'
+  return name.trim()
+}
 
-  // Group by city
-  const byCity: Record<string, CaseRow[]> = {}
+/** Private (non-MACT/WC), Private MACT, or the company name. */
+function bucketFor(c: CaseRow): string {
+  if (c.is_company_case) return normalizeCompany(c.client_name || 'Company')
+  return isMactOrWc(c.court_code) ? 'Private MACT' : 'Private'
+}
+
+// One section per bucket, one date sub-group per hearing date within it.
+function BucketList({ cases }: { cases: CaseRow[] }) {
+  const byDate: Record<string, CaseRow[]> = {}
   for (const c of cases) {
-    const city = getCity(c.court_code)
-    if (!byCity[city]) byCity[city] = []
-    byCity[city].push(c)
+    if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
+    byDate[c.hearing_date].push(c)
   }
-  const cities = CITY_ORDER.filter(city => byCity[city]?.length > 0)
+  const dates = Object.keys(byDate).sort()
 
-  if (cities.length === 1) {
-    // All same city — no sub-header needed
-    return (
-      <ol className="space-y-0.5">
-        {cases.map((c, i) => (
-          <li key={c.id} className="flex items-baseline gap-1.5 text-xs text-gray-800 leading-5">
-            <span className="text-gray-400 w-5 flex-shrink-0 text-right">{i + 1}.</span>
-            <span className="font-semibold text-gray-600 flex-shrink-0">{courtLabelFor(c.court_code, c.court_name, customCourts)}</span>
-            <span className="text-gray-400">–</span>
-            <span className="font-mono text-gray-700">{formatCaseNumber(c.case_number, c.case_year)}</span>
-            <span className="text-gray-400">–</span>
-            <span>{c.party_plaintiff} / {c.party_defendant}</span>
-            {showDate && <span className="text-gray-400 flex-shrink-0 ml-1">({fmtDate(c.hearing_date)})</span>}
-          </li>
-        ))}
-      </ol>
-    )
-  }
-
-  // Multiple cities — show city sub-headers
-  let globalIdx = 1
   return (
-    <div className="space-y-2">
-      {cities.map(city => (
-        <div key={city}>
-          <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${CITY_COLORS[city]}`}>
-            — {city} —
+    <div className="space-y-3">
+      {dates.map((date) => (
+        <div key={date}>
+          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5">
+            {fmtDate(date)}
           </div>
-          <ol className="space-y-0.5">
-            {byCity[city].map((c) => {
-              const idx = globalIdx++
-              return (
-                <li key={c.id} className="flex items-baseline gap-1.5 text-xs text-gray-800 leading-5">
-                  <span className="text-gray-400 w-5 flex-shrink-0 text-right">{idx}.</span>
-                  <span className="font-semibold text-gray-600 flex-shrink-0">{courtLabelFor(c.court_code, c.court_name, customCourts)}</span>
-                  <span className="text-gray-400">–</span>
-                  <span className="font-mono text-gray-700">{formatCaseNumber(c.case_number, c.case_year)}</span>
-                  <span className="text-gray-400">–</span>
-                  <span>{c.party_plaintiff} / {c.party_defendant}</span>
-                  {showDate && <span className="text-gray-400 flex-shrink-0 ml-1">({fmtDate(c.hearing_date)})</span>}
-                </li>
-              )
-            })}
+          <ol className="space-y-1">
+            {byDate[date].map((c) => (
+              <li key={c.id} className="text-sm text-gray-800 leading-5">
+                {c.case_number && (
+                  <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
+                )}
+                <span>{c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}</span>
+                {c.case_stage && <span className="text-gray-400"> ({c.case_stage})</span>}
+              </li>
+            ))}
           </ol>
         </div>
       ))}
     </div>
   )
+}
+
+// Sort order for bucket titles: Private, Private MACT, then every company A→Z.
+function bucketSortKey(name: string): string {
+  if (name === 'Private') return '0'
+  if (name === 'Private MACT') return '1'
+  return `2${name.toLowerCase()}`
 }
 
 export default function FileListPage() {
@@ -153,7 +126,6 @@ export default function FileListPage() {
   const [cases, setCases] = useState<CaseRow[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
 
   async function fetchFiles() {
     if (!fromDate || !toDate) return
@@ -165,9 +137,6 @@ export default function FileListPage() {
     const { data: adv } = await supabase
       .from('advocates').select('id').eq('user_id', user.id).limit(1).single()
     if (!adv) { setLoading(false); return }
-
-    const { data: cc } = await supabase.from('custom_courts').select('id, name, short_name, builtin_code')
-    setCustomCourts((cc as CustomCourtRow[]) || [])
 
     // Get hearings in date range
     const { data: hearings } = await supabase
@@ -184,7 +153,7 @@ export default function FileListPage() {
     const caseIds = [...new Set(hearings.map((h: { case_id: string }) => h.case_id))]
     const { data: casesData } = await supabase
       .from('cases')
-      .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name')
+      .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, is_company_case, case_stage')
       .in('id', caseIds)
       .eq('advocate_id', adv.id)
 
@@ -206,55 +175,17 @@ export default function FileListPage() {
     setLoading(false)
   }
 
-  const byDate = (a: CaseRow, b: CaseRow) => a.hearing_date.localeCompare(b.hearing_date)
-
-  function normalizeCompany(name: string): string {
-    const n = name.trim().toLowerCase()
-    if (n.includes('icici')) return 'ICICI'
-    if (n.includes('hdfc')) return 'HDFC'
-    if (n.includes('sbi') || n.includes('state bank')) return 'SBI'
-    if (n.includes('bajaj')) return 'Bajaj'
-    if (n.includes('tata')) return 'Tata'
-    if (n.includes('new india')) return 'New India Assurance'
-    if (n.includes('national insurance')) return 'National Insurance'
-    if (n.includes('oriental')) return 'Oriental Insurance'
-    if (n.includes('united india')) return 'United India Insurance'
-    if (n.includes('universal sompo') || n.includes('sompo')) return 'Universal Sompo'
-    if (n.includes('reliance')) return 'Reliance'
-    if (n.includes('cholamandalam') || n.includes('chola')) return 'Cholamandalam'
-    if (n.includes('royal sundaram')) return 'Royal Sundaram'
-    if (n.includes('future generali')) return 'Future Generali'
-    if (n.includes('iffco')) return 'IFFCO-Tokio'
-    if (n.includes('star health')) return 'Star Health'
-    if (n.includes('niva bupa')) return 'Niva Bupa'
-    if (n.includes('go digit') || n.includes('digit')) return 'Go Digit'
-    if (n.includes('care health')) return 'Care Health'
-    if (n.includes('lic') || n.includes('life insurance corporation')) return 'LIC'
-    if (n.includes('punjab national') || n.includes('pnb')) return 'PNB'
-    if (n.includes('bank of baroda')) return 'Bank of Baroda'
-    if (n.includes('bank of india')) return 'Bank of India'
-    if (n.includes('canara')) return 'Canara Bank'
-    if (n.includes('union bank')) return 'Union Bank'
-    if (n.includes('axis bank')) return 'Axis Bank'
-    if (n.includes('kotak')) return 'Kotak'
-    if (n.includes('indusind')) return 'IndusInd Bank'
-    if (n.includes('shriram')) return 'Shriram'
-    if (n.includes('mahindra finance') || n.includes('m&m fin')) return 'Mahindra Finance'
-    if (n.includes('muthoot')) return 'Muthoot'
-    return name.trim()
+  // Group everything into buckets: Private / Private MACT / each company
+  const buckets: Record<string, CaseRow[]> = {}
+  for (const c of cases) {
+    const key = bucketFor(c)
+    if (!buckets[key]) buckets[key] = []
+    buckets[key].push(c)
   }
-
-  // Group by city first, then by case type within each city
-  const cityCases: Record<string, CaseRow[]> = {}
-  for (const c of cases.slice().sort(byDate)) {
-    const city = getCity(c.court_code)
-    if (!cityCases[city]) cityCases[city] = []
-    cityCases[city].push(c)
-  }
-  const activeCities = CITY_ORDER.filter(city => cityCases[city]?.length > 0)
+  const bucketNames = Object.keys(buckets).sort((a, b) => bucketSortKey(a).localeCompare(bucketSortKey(b)))
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>
@@ -323,103 +254,20 @@ export default function FileListPage() {
                 </div>
               </div>
 
-              {/* One section per city */}
-              {activeCities.map(city => {
-                const cityCaseList = cityCases[city]
-                const personal = cityCaseList.filter(isPersonal)
-                const company = cityCaseList.filter(c => !isPersonal(c))
-
-                const g1 = personal.filter(c => MACT_LC_WC(c.court_code))
-                const g2 = personal.filter(c => DCF_STATECOMM(c.court_code))
-                const g3 = personal.filter(c => NI(c.court_code))
-                const g4 = personal.filter(c => CIVIL_CRIMINAL(c.court_code))
-                const g4Other = personal.filter(c =>
-                  !MACT_LC_WC(c.court_code) && !DCF_STATECOMM(c.court_code) &&
-                  !NI(c.court_code) && !CIVIL_CRIMINAL(c.court_code)
-                )
-
-                const companyGroups: Record<string, CaseRow[]> = {}
-                for (const c of company) {
-                  const key = normalizeCompany(c.client_name || 'Other')
-                  if (!companyGroups[key]) companyGroups[key] = []
-                  companyGroups[key].push(c)
-                }
-                const companyNames = Object.keys(companyGroups).sort()
-
-                const cityColor = CITY_COLORS[city] || 'text-gray-700'
-
-                return (
-                  <div key={city} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden">
-                    {/* City header */}
+              {/* One section per bucket: Private, Private MACT, each company */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-2">
+                {bucketNames.map((name) => (
+                  <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start">
                     <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2" style={{ background: '#1e3a5f' }}>
-                      <span className="text-sm font-bold text-white uppercase tracking-widest">{city}</span>
-                      <span className="text-xs text-blue-200">({cityCaseList.length} files)</span>
+                      <span className="text-sm font-bold text-white uppercase tracking-widest">{name}</span>
+                      <span className="text-xs text-blue-200">({buckets[name].length})</span>
                     </div>
-
-                    <div className="divide-y divide-gray-100">
-                      {g1.length > 0 && (
-                        <div>
-                          <div className="px-4 py-2 border-b border-gray-100" style={{ background: '#dbeafe' }}>
-                            <span className="text-xs font-bold text-blue-800 uppercase tracking-wide">MACT / LC / WC</span>
-                            <span className="ml-2 text-xs text-blue-600">({g1.length})</span>
-                          </div>
-                          <div className="px-4 py-3"><CaseList cases={g1} showDate={true} customCourts={customCourts} /></div>
-                        </div>
-                      )}
-
-                      {g2.length > 0 && (
-                        <div>
-                          <div className="px-4 py-2 border-b border-gray-100" style={{ background: '#dcfce7' }}>
-                            <span className="text-xs font-bold text-green-800 uppercase tracking-wide">DCF / State Commission</span>
-                            <span className="ml-2 text-xs text-green-600">({g2.length})</span>
-                          </div>
-                          <div className="px-4 py-3"><CaseList cases={g2} showDate={true} customCourts={customCourts} /></div>
-                        </div>
-                      )}
-
-                      {g3.length > 0 && (
-                        <div>
-                          <div className="px-4 py-2 border-b border-gray-100" style={{ background: '#fef9c3' }}>
-                            <span className="text-xs font-bold text-yellow-800 uppercase tracking-wide">NI Cases</span>
-                            <span className="ml-2 text-xs text-yellow-600">({g3.length})</span>
-                          </div>
-                          <div className="px-4 py-3"><CaseList cases={g3} showDate={true} customCourts={customCourts} /></div>
-                        </div>
-                      )}
-
-                      {(g4.length > 0 || g4Other.length > 0) && (
-                        <div>
-                          <div className="px-4 py-2 border-b border-gray-100" style={{ background: '#f3f4f6' }}>
-                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Civil / Criminal</span>
-                            <span className="ml-2 text-xs text-gray-500">({g4.length + g4Other.length})</span>
-                          </div>
-                          <div className="px-4 py-3"><CaseList cases={[...g4, ...g4Other]} showDate={true} customCourts={customCourts} /></div>
-                        </div>
-                      )}
-
-                      {companyNames.length > 0 && (
-                        <div>
-                          <div className="px-4 py-2 border-b border-gray-100" style={{ background: '#ede9fe' }}>
-                            <span className="text-xs font-bold text-purple-800 uppercase tracking-wide">Company Bundle</span>
-                            <span className="ml-2 text-xs text-purple-600">({company.length} files, {companyNames.length} cos)</span>
-                          </div>
-                          <div className="divide-y divide-gray-50">
-                            {companyNames.map(name => (
-                              <div key={name} className="px-4 py-3">
-                                <div className="text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
-                                  {name}
-                                  <span className="font-normal text-gray-400 ml-1">({companyGroups[name].length})</span>
-                                </div>
-                                <CaseList cases={companyGroups[name]} showDate={true} customCourts={customCourts} />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                    <div className="p-4">
+                      <BucketList cases={buckets[name]} />
                     </div>
                   </div>
-                )
-              })}
+                ))}
+              </div>
 
               {/* Summary */}
               <div className="text-xs text-gray-400 text-right print:hidden">

@@ -303,8 +303,39 @@ export default function AllCasesPage() {
         </div>
       ) : (
         <>
-          {/* Table */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-2.5">
+            {pageCases.map((c) => {
+              const sc = STATUS_COLORS[c.status] || STATUS_COLORS.active
+              const court = courtLabel(c.court_code, c.court_name)
+              return (
+                <Link
+                  key={c.id}
+                  href={`/diary/cases/${c.id}`}
+                  className="block bg-white rounded-xl border border-gray-200 p-4 active:bg-gray-50"
+                >
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">{court}</span>
+                    <span className="font-mono text-sm font-semibold" style={{ color: '#1e3a5f' }}>
+                      {c.case_number ? formatCaseNumber(c.case_number, c.case_year) : 'No number yet'}
+                    </span>
+                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ml-auto" style={{ background: sc.bg, color: sc.text }}>
+                      {c.status}
+                    </span>
+                  </div>
+                  <p className="text-base leading-snug text-gray-800">
+                    {c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}
+                  </p>
+                  {c.case_stage && (
+                    <p className="text-sm text-gray-500 mt-1">{c.case_stage}</p>
+                  )}
+                </Link>
+              )
+            })}
+          </div>
+
+          {/* Table (desktop) */}
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -355,11 +386,11 @@ export default function AllCasesPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <p className="text-sm text-gray-500">
+            <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-3 mt-4">
+              <p className="text-sm text-gray-500 order-2 sm:order-1">
                 Page {page} of {totalPages} &nbsp;·&nbsp; showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
               </p>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 order-1 sm:order-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
@@ -367,8 +398,9 @@ export default function AllCasesPage() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                  const p = totalPages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= totalPages - 3 ? totalPages - 6 + i : page - 3 + i
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  const cap = Math.min(totalPages, 5)
+                  const p = totalPages <= cap ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - cap + 1 + i : page - 2 + i
                   return (
                     <button
                       key={p}

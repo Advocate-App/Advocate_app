@@ -149,7 +149,76 @@ export default function PendingPage() {
           <p className="text-sm text-gray-400">All cases are up to date.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <>
+        {/* Mobile cards */}
+        <div className="md:hidden space-y-3">
+          {items.map((item) => {
+            const stages = item.courtLevel === 'high_court' ? HC_STAGES : DISTRICT_STAGES
+            const nd = nextDate[item.hearingId] || ''
+            const sg = stage[item.hearingId] !== undefined ? stage[item.hearingId] : (item.stageOnDate || '')
+            return (
+              <div key={item.hearingId} className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className="text-sm font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                    {courtLabel(item)}
+                  </span>
+                  <span className="font-mono text-sm text-gray-600">
+                    {item.caseNumber}{item.caseYear ? `/${item.caseYear}` : ''}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-auto">Last heard {format(new Date(item.hearingDate), 'd MMM yy')}</span>
+                </div>
+                <p className="text-base text-gray-800 mb-3">
+                  {item.plaintiff} <span className="text-gray-400">vs</span> {item.defendant}
+                </p>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Stage</label>
+                    <select
+                      value={sg}
+                      onChange={e => setStage(p => ({ ...p, [item.hearingId]: e.target.value }))}
+                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+                      style={{ minHeight: '44px' }}
+                    >
+                      <option value="">Stage…</option>
+                      {stages.filter(s => s !== 'Custom...').map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Next Date *</label>
+                    <input
+                      type="date"
+                      value={nd}
+                      onChange={e => setNextDate(p => ({ ...p, [item.hearingId]: e.target.value }))}
+                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+                      style={{ minHeight: '44px' }}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => saveRow(item)}
+                    disabled={!nd || savingId === item.hearingId}
+                    className="flex-1 px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
+                    style={{ minHeight: '44px' }}
+                  >
+                    {savingId === item.hearingId ? '…' : 'Set Date'}
+                  </button>
+                  <button
+                    onClick={() => markDisposed(item)}
+                    disabled={savingId === item.hearingId}
+                    className="flex-1 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-30"
+                    style={{ minHeight: '44px' }}
+                  >
+                    Disposed
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Table (desktop) */}
+        <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr style={{ background: '#f5f5f0' }}>
@@ -227,6 +296,7 @@ export default function PendingPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   )

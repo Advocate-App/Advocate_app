@@ -87,10 +87,12 @@ export default function FindCasePage() {
     })
   }, [allCases, terms])
 
-  // "Did you mean…" -- only offered for a single-word query with no results,
-  // so it's unambiguous which word we're correcting.
+  // "Did you mean…" -- shown below the exact results (or instead of them,
+  // when there are none) for a single-word query, so it's unambiguous
+  // which word we're correcting. Always computed so a similarly-spelled
+  // name doesn't get missed just because a few exact matches came back.
   const suggestions = useMemo(() => {
-    if (terms.length !== 1 || results.length > 0 || !allCases.length) return []
+    if (terms.length !== 1 || !allCases.length) return []
     const pool: string[] = []
     for (const c of allCases) {
       if (c.party_plaintiff) pool.push(c.party_plaintiff)
@@ -98,7 +100,7 @@ export default function FindCasePage() {
       if (c.client_name) pool.push(c.client_name)
     }
     return suggestCorrections(terms[0], pool, { limit: 3 })
-  }, [terms, results.length, allCases])
+  }, [terms, allCases])
 
   return (
     <div className="max-w-4xl">
@@ -194,6 +196,26 @@ export default function FindCasePage() {
           })}
           {results.length > 100 && (
             <p className="text-xs text-gray-400 text-center pt-2">Showing first 100 of {results.length} — type more to narrow it down.</p>
+          )}
+
+          {suggestions.length > 0 && (
+            <div className="bg-white rounded-xl border border-dashed border-gray-200 p-4 mt-3">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Did you mean…
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setQuery(s)}
+                    className="px-3 py-1.5 rounded-full text-sm font-medium border transition-colors"
+                    style={{ borderColor: '#1e3a5f', color: '#1e3a5f' }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
