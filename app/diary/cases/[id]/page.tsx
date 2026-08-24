@@ -15,6 +15,7 @@ import {
 } from '@/lib/constants/courts'
 import {
   ChevronRight,
+  ChevronDown,
   Pencil,
   Plus,
   Trash2,
@@ -44,6 +45,7 @@ interface CaseRecord {
   party_defendant: string
   full_title: string
   client_name: string | null
+  client_id: string | null
   client_side: string | null
   our_role: string | null
   opposite_advocate: string | null
@@ -66,6 +68,7 @@ interface CaseRecord {
   order_sent_date: string | null
   appeal_filed: boolean
   case_story: string | null
+  lok_adalat_fit: boolean | null
 }
 
 interface ImportantPoint {
@@ -208,6 +211,12 @@ export default function CaseDetailPage() {
   const [addingPoint, setAddingPoint] = useState(false)
   const [deletePointId, setDeletePointId] = useState<string | null>(null)
 
+  // Company picker state
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false)
+  const [companySearch, setCompanySearch] = useState('')
+  const [companySaving, setCompanySaving] = useState(false)
+
   // eCourts state
   const [cnrInput, setCnrInput] = useState('')
   const [cnrSaving, setCnrSaving] = useState(false)
@@ -294,12 +303,23 @@ export default function CaseDetailPage() {
     setPointsLoading(false)
   }, [id])
 
+  // ───── Load existing companies (for the Company picker) ─────
+  const loadCompanies = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('is_company', true)
+      .order('name', { ascending: true })
+    setCompanies((data as { id: string; name: string }[]) || [])
+  }, [])
+
   // Fetch tab-specific data on tab switch
   useEffect(() => {
     if (activeTab === 'hearings') loadHearings()
     if (activeTab === 'documents') loadDocuments()
-    if (activeTab === 'tracking') loadImportantPoints()
-  }, [activeTab, loadHearings, loadDocuments, loadImportantPoints])
+    if (activeTab === 'tracking') { loadImportantPoints(); loadCompanies() }
+  }, [activeTab, loadHearings, loadDocuments, loadImportantPoints, loadCompanies])
 
   // ───── Hearing CRUD ─────
   function resetHearingForm() {
@@ -485,6 +505,53 @@ export default function CaseDetailPage() {
       .update({ order_sent_date: dateVal || null })
       .eq('id', id)
     if (!error) setCaseData({ ...caseData, order_sent_date: dateVal || null })
+    setTrackingSaving(null)
+  }
+
+  // ───── Tracking: pick an existing company for this case ─────
+  async function selectCompany(companyId: string, companyName: string) {
+    if (!caseData) return
+    setCompanySaving(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('cases')
+      .update({ client_id: companyId, client_name: companyName })
+      .eq('id', id)
+    if (!error) setCaseData({ ...caseData, client_id: companyId, client_name: companyName })
+    setCompanySaving(false)
+    setCompanyPickerOpen(false)
+    setCompanySearch('')
+  }
+
+  // ───── Tracking: add a brand-new company and attach it to this case ─────
+  async function addNewCompany(name: string) {
+    if (!caseData || !name.trim()) return
+    setCompanySaving(true)
+    const supabase = createClient()
+    const { data: advRows } = await supabase.from('advocates').select('id').limit(1)
+    const advId = advocateId || advRows?.[0]?.id
+    const { data: newClient, error } = await supabase
+      .from('clients')
+      .insert({ advocate_id: advId, name: name.trim(), is_company: true })
+      .select('id, name')
+      .single()
+    if (!error && newClient) {
+      setCompanies((prev) => [...prev, newClient].sort((a, b) => a.name.localeCompare(b.name)))
+      await selectCompany(newClient.id, newClient.name)
+    }
+    setCompanySaving(false)
+  }
+
+  // ───── Lok Adalat fitness (tri-state: null = not assessed) ─────
+  async function setLokAdalatFit(value: boolean | null) {
+    if (!caseData) return
+    setTrackingSaving('lok_adalat_fit')
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('cases')
+      .update({ lok_adalat_fit: value })
+      .eq('id', id)
+    if (!error) setCaseData({ ...caseData, lok_adalat_fit: value })
     setTrackingSaving(null)
   }
 
@@ -711,6 +778,33 @@ export default function CaseDetailPage() {
       {/* ======== OVERVIEW ======== */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {/* Case Story */}
+          <section className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <BookOpen className="w-4 h-4" /> Case Story
+              </h3>
+              {storyDirty && (
+                <button
+                  onClick={saveStory}
+                  disabled={storySaving}
+                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  {storySaving ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </div>
+            <textarea
+              value={storyDraft}
+              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
+              onBlur={() => { if (storyDirty) saveStory() }}
+              rows={5}
+              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+            />
+          </section>
+
           {/* Parties */}
           <section className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
@@ -748,6 +842,32 @@ export default function CaseDetailPage() {
               <Field label="Case Number" value={formatCaseNumber(caseData.case_number, caseData.case_year)} />
               <Field label="Current Stage" value={caseData.case_stage} />
               <Field label="Status" value={capitalize(caseData.status)} />
+            </div>
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <span className="block text-xs text-gray-500 mb-2">Lok Adalat</span>
+              <div className="flex items-center gap-5">
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={caseData.lok_adalat_fit === true}
+                    onChange={(e) => setLokAdalatFit(e.target.checked ? true : null)}
+                    className="w-4 h-4 rounded border-gray-300"
+                    style={{ accentColor: '#1e3a5f' }}
+                  />
+                  Fit for Lok Adalat
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={caseData.lok_adalat_fit === false}
+                    onChange={(e) => setLokAdalatFit(e.target.checked ? false : null)}
+                    className="w-4 h-4 rounded border-gray-300"
+                    style={{ accentColor: '#1e3a5f' }}
+                  />
+                  Not Fit for Lok Adalat
+                </label>
+                {trackingSaving === 'lok_adalat_fit' && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
+              </div>
             </div>
           </section>
 
@@ -822,7 +942,76 @@ export default function CaseDetailPage() {
                 onChange={(v) => toggleCaseField('is_company_case', v)}
               />
               {caseData.is_company_case && (
-                <div className="pl-4 border-l-2" style={{ borderColor: '#dbeafe' }}>
+                <div className="pl-4 border-l-2 py-3 space-y-3" style={{ borderColor: '#dbeafe' }}>
+                  {/* Company picker */}
+                  <div className="relative">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>
+                    <button
+                      type="button"
+                      onClick={() => setCompanyPickerOpen((v) => !v)}
+                      className="w-full flex items-center justify-between px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-left bg-white hover:border-gray-400 transition-colors"
+                    >
+                      <span className={caseData.client_name ? 'text-gray-900' : 'text-gray-400'}>
+                        {caseData.client_name || 'Select a company…'}
+                      </span>
+                      {companySaving ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-gray-400 shrink-0" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                      )}
+                    </button>
+
+                    {companyPickerOpen && (
+                      <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-hidden">
+                        <div className="p-2 border-b border-gray-100">
+                          <input
+                            autoFocus
+                            type="text"
+                            value={companySearch}
+                            onChange={(e) => setCompanySearch(e.target.value)}
+                            placeholder="Search companies…"
+                            className="w-full px-2.5 py-1.5 border border-gray-200 rounded-md text-sm bg-gray-50 outline-none"
+                          />
+                        </div>
+                        <ul className="overflow-y-auto max-h-48">
+                          {companies
+                            .filter((c) => c.name.toLowerCase().includes(companySearch.trim().toLowerCase()))
+                            .map((c) => (
+                              <li key={c.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => selectCompany(c.id, c.name)}
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
+                                    c.name === caseData.client_name ? 'bg-blue-50 font-medium' : ''
+                                  }`}
+                                >
+                                  {c.name}
+                                </button>
+                              </li>
+                            ))}
+                          {companySearch.trim() && !companies.some((c) => c.name.toLowerCase() === companySearch.trim().toLowerCase()) && (
+                            <li>
+                              <button
+                                type="button"
+                                onClick={() => addNewCompany(companySearch)}
+                                className="w-full text-left px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors flex items-center gap-1.5"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add &ldquo;{companySearch.trim()}&rdquo; as a new company
+                              </button>
+                            </li>
+                          )}
+                          {!companySearch.trim() && companies.length === 0 && (
+                            <li className="px-3 py-2.5 text-sm text-gray-400">No companies saved yet — type a name to add one.</li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1">
+                      Pick from your existing companies, or type a new name to add it.
+                    </p>
+                  </div>
+
                   <TrackingToggle
                     label="Documents Received (from petitioner's advocate)"
                     checked={caseData.documents_received}
@@ -884,33 +1073,6 @@ export default function CaseDetailPage() {
                 onChange={(v) => toggleCaseField('appeal_filed', v)}
               />
             </div>
-          </section>
-
-          {/* Short Story */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                <BookOpen className="w-4 h-4" /> Case Story
-              </h3>
-              {storyDirty && (
-                <button
-                  onClick={saveStory}
-                  disabled={storySaving}
-                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
-                  style={{ background: '#1e3a5f' }}
-                >
-                  {storySaving ? 'Saving…' : 'Save'}
-                </button>
-              )}
-            </div>
-            <textarea
-              value={storyDraft}
-              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
-              onBlur={() => { if (storyDirty) saveStory() }}
-              rows={6}
-              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-            />
           </section>
 
           {/* Important Points */}
