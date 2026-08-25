@@ -163,13 +163,6 @@ export async function addDailyBackupTab(
     return { created: false, sheetTitle: tabTitle }
   }
 
-  await sheetsFetch(accessToken, `/${spreadsheetId}:batchUpdate`, {
-    method: 'POST',
-    body: JSON.stringify({
-      requests: [{ addSheet: { properties: { title: tabTitle } } }],
-    }),
-  })
-
   const header = [
     'Court', 'City', 'Case No.', 'Year', 'Plaintiff', 'Defendant', 'Client',
     'Stage', 'Status', 'Company Case', 'Payment Received', 'Documents Received',
@@ -187,11 +180,40 @@ export async function addDailyBackupTab(
     ]),
   ]
 
-  await sheetsFetch(
-    accessToken,
-    `/${spreadsheetId}/values/${encodeURIComponent(`'${tabTitle}'!A1`)}?valueInputOption=RAW`,
-    { method: 'PUT', body: JSON.stringify({ values }) }
-  )
+  // A brand-new tab defaults to Google's standard 1000-row grid. The Sheets
+  // API does NOT auto-grow that when you write more rows than it has room
+  // for — it silently stops at row 1000 — which is exactly why the backup
+  // was stuck at ~1,000 cases while the real case list kept growing past
+  // it. Sizing the grid to fit everything (plus headroom) right when the
+  // tab is created means this scales cleanly whether there are 1,200 cases
+  // or 10,000+.
+  await sheetsFetch(accessToken, `/${spreadsheetId}:batchUpdate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      requests: [{
+        addSheet: {
+          properties: {
+            title: tabTitle,
+            gridProperties: { rowCount: values.length + 100, columnCount: header.length + 4 },
+          },
+        },
+      }],
+    }),
+  })
+
+  // Write in chunks rather than one giant request — keeps this working
+  // reliably at large case counts instead of risking a single oversized
+  // payload to the Sheets API.
+  const CHUNK = 2000
+  for (let i = 0; i < values.length; i += CHUNK) {
+    const chunk = values.slice(i, i + CHUNK)
+    const startRow = i + 1 // sheet rows are 1-indexed
+    await sheetsFetch(
+      accessToken,
+      `/${spreadsheetId}/values/${encodeURIComponent(`'${tabTitle}'!A${startRow}`)}?valueInputOption=RAW`,
+      { method: 'PUT', body: JSON.stringify({ values: chunk }) }
+    )
+  }
 
   return { created: true, sheetTitle: tabTitle }
 }
