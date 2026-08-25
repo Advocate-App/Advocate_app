@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -13,7 +13,6 @@ import {
   Menu,
   X,
   LogOut,
-  LayoutGrid,
   FolderOpen,
   Building2,
   Users,
@@ -36,20 +35,6 @@ const navItems = [
   { href: '/diary/profile', label: 'Profile', icon: User },
 ]
 
-const SSO_KEY = '94c1a5172f3a7c1c7e766d1970db46fa41d3dbeb32cdcab7'
-
-const myApps = [
-  { name: 'Advocate Hub', baseUrl: 'https://advocate-diary-hub-orpin.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/diary', color: '#1e3a5f', icon: '&#9878;', current: true },
-  { name: 'Udaipur Sports Club', baseUrl: 'https://advocate-diary-hub-orpin.vercel.app', loginPath: '/api/sso-usc', defaultPath: '/dashboard', color: '#f97316', icon: '&#9917;', current: false },
-  { name: 'Metro ERP', baseUrl: 'https://metro-erp.vercel.app', loginPath: '/api/auth/auto-login', defaultPath: '/dashboard', color: '#059669', icon: '&#9879;', current: false },
-  { name: 'Warehouse Hub', baseUrl: 'https://udaipur-warehouse-hub-sandy.vercel.app', loginPath: '/auth/auto-login', defaultPath: '/admin', color: '#7c3aed', icon: '&#9889;', current: false },
-]
-
-function getAppUrl(app: typeof myApps[0]): string {
-  if (app.current) return app.baseUrl + app.defaultPath
-  return `${app.baseUrl}${app.loginPath}?key=${SSO_KEY}&redirect=${app.defaultPath}`
-}
-
 // Junior advocates only get the diary + case lookup — everything else
 // (client lists, courts, empanelment, filters/reports, editing) is off
 // limits. They can still open a case (to set a hearing date) via a link
@@ -66,10 +51,8 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [advocateName, setAdvocateName] = useState('')
   const [role, setRole] = useState<'advocate' | 'junior' | null>(null)
-  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const appSwitcherRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function loadProfile() {
@@ -104,17 +87,6 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
   const visibleNavItems = role === 'junior'
     ? navItems.filter((item) => item.href === '/diary' || item.href === '/diary/find')
     : navItems
-
-  // Close app switcher on outside click
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (appSwitcherRef.current && !appSwitcherRef.current.contains(e.target as Node)) {
-        setAppSwitcherOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
 
   async function handleLogout() {
     const supabase = createClient()
@@ -183,51 +155,6 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
           <div className="lg:flex-1" />
 
           <div className="flex items-center gap-3">
-            {/* App Switcher */}
-            <div ref={appSwitcherRef} className="relative">
-              <button
-                onClick={() => setAppSwitcherOpen(!appSwitcherOpen)}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                title="Switch App"
-              >
-                <LayoutGrid className="w-5 h-5 text-gray-500" />
-              </button>
-
-              {appSwitcherOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">My Apps</p>
-                  </div>
-                  <div className="p-2">
-                    {myApps.map((app) => (
-                      <a
-                        key={app.name}
-                        href={getAppUrl(app)}
-                        target="_self"
-                        rel="noopener noreferrer"
-                        onClick={() => setAppSwitcherOpen(false)}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                          app.current ? 'bg-gray-50 font-medium' : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <span
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-lg"
-                          style={{ background: app.color }}
-                          dangerouslySetInnerHTML={{ __html: app.icon }}
-                        />
-                        <div>
-                          <p className="text-gray-800">{app.name}</p>
-                          {app.current && (
-                            <p className="text-[10px] text-green-600 font-medium">Currently here</p>
-                          )}
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             <span className="text-sm text-gray-600 hidden sm:block">{advocateName}</span>
             <button
               onClick={handleLogout}
