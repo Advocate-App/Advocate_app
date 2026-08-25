@@ -156,6 +156,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
+  // Juniors don't own any cases themselves — they help out on Avi's and
+  // Ratnesh's cases. So a junior's diary/calendar needs to show hearings
+  // for *both* senior advocates, not just cases matching their own id
+  // (which never matches anything and used to leave the diary empty).
+  const [visibleAdvocateIds, setVisibleAdvocateIds] = useState<string[] | null>(null)
   const [slipPrinting, setSlipPrinting] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
@@ -216,17 +221,26 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         if (!user) { setLoading(false); return }
         const { data } = await supabase
           .from('advocates')
-          .select('id, full_name')
+          .select('id, full_name, role')
           .eq('user_id', user.id)
           .limit(1)
           .single()
         if (data) {
           setAdvocateId(data.id)
           setAdvocateName(data.full_name || '')
+          let ownerIds = [data.id]
+          if (data.role === 'junior') {
+            const { data: seniors } = await supabase
+              .from('advocates')
+              .select('id')
+              .eq('role', 'advocate')
+            ownerIds = (seniors || []).map((s: { id: string }) => s.id)
+          }
+          setVisibleAdvocateIds(ownerIds)
           const { data: cc } = await supabase
             .from('custom_courts')
-            .select('id, name, short_name')
-            .eq('advocate_id', data.id)
+            .select('id, name, short_name, builtin_code')
+            .in('advocate_id', ownerIds)
           if (cc) {
             const map: Record<string, string> = {}
             for (const c of cc as CustomCourtRow[]) {
@@ -247,15 +261,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     loadAdvocate()
   }, [])
 
-  // Fetch month hearing dates for navigator — only this advocate's hearings
+  // Fetch month hearing dates for navigator — this advocate's hearings
+  // (or, for a junior, both senior advocates' hearings combined)
   const fetchMonthDates = useCallback(async () => {
-    if (!advocateId) return
+    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) return
     try {
       const supabase = createClient()
       const start = toYMD(startOfMonth(selectedDate))
       const end = toYMD(endOfMonth(selectedDate))
       const myCases = await fetchAllRows<{ id: string }>((from, to) =>
-        supabase.from('cases').select('id').eq('advocate_id', advocateId).range(from, to)
+        supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
       )
       if (myCases.length === 0) return
       const myCaseIds = myCases.map((c) => c.id)
@@ -276,11 +291,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     } catch (err) {
       console.error('fetchMonthDates error:', err)
     }
-  }, [advocateId, selectedDate])
+  }, [visibleAdvocateIds, selectedDate])
 
   // Fetch hearings for selected date
   const fetchHearings = useCallback(async () => {
-    if (!advocateId) return
+    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) return
     setLoading(true)
     try {
       const supabase = createClient()
@@ -312,7 +327,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const combined: HearingWithCase[] = []
       for (const h of hearingRows as HearingRow[]) {
         const c = caseMap.get(h.case_id)
-        if (c && c.advocate_id === advocateId) combined.push({ ...h, caseData: c })
+        if (c && visibleAdvocateIds && visibleAdvocateIds.includes(c.advocate_id)) combined.push({ ...h, caseData: c })
       }
 
       combined.sort((a, b) =>
@@ -326,11 +341,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     } finally {
       setLoading(false)
     }
-  }, [advocateId, selectedDate])
+  }, [visibleAdvocateIds, selectedDate])
 
   useEffect(() => {
-    if (advocateId) { fetchHearings(); fetchMonthDates() }
-  }, [advocateId, fetchHearings, fetchMonthDates])
+    if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates() }
+  }, [visibleAdvocateIds, fetchHearings, fetchMonthDates])
 
   function goDay(offset: number) {
     const newDate = offset > 0 ? addDays(selectedDate, offset) : subDays(selectedDate, Math.abs(offset))
@@ -1159,17 +1174,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           body:not(.print-slip-mode) table th { font-size: 11px !important; padding: 2px 4px !important; }
           body:not(.print-slip-mode) table td { font-size: 11px !important; padding: 2px 4px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
-          body.print-slip-mode { display: flex; justify-content: flex-end; padding: 10mm 8mm 0 0; }
+          body.print-slip-mode { display: flex; justify-content: flex-end; padding: 18mm 8mm 0 0; }
           body.print-slip-mode #diary-slip {
             display: block !important;
             position: static !important;
             width: 92mm !important;
             height: auto !important;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: 11px;
-            line-height: 1.3;
+            font-size: 13px;
+            line-height: 1.5;
             border: 0.5px solid #999;
-            padding: 3mm 4mm 3mm;
+            padding: 4mm 4mm 3mm;
             box-sizing: border-box;
             background: white;
           }
@@ -1186,27 +1201,34 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           )
           return (
             <>
-              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1mm', marginBottom: '1.5mm' }}>
-                <div style={{ fontSize: '11px', fontWeight: 'bold' }}>
+              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '2mm' }}>
+                <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
                   {advocateName ? `Adv. ${advocateName} · ` : ''}{format(selectedDate, 'd MMM yyyy')} ({dayName.slice(0, 3)} · {HINDI_DAYS[dayName] || ''})
                 </div>
               </div>
               {sorted.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '11px', color: '#999' }}>No hearings today</div>
+                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '13px', color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {sorted.map((h) => (
-                    <li key={h.id} style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', padding: '0.3mm 0', borderBottom: '0.3px dotted #ddd' }}>
-                      <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
-                      <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '10px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
-                      <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                      <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
+                    <li key={h.id} style={{ padding: '1mm 0', borderBottom: '0.3px dotted #ddd' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm' }}>
+                        <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
+                        <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '12px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
+                        <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
+                        <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
+                      </div>
+                      {h.caseData.case_stage && (
+                        <div style={{ fontSize: '10px', color: '#777', fontStyle: 'italic', marginTop: '0.3mm' }}>
+                          {h.caseData.case_stage}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
-              <div style={{ marginTop: '1.5mm', paddingTop: '1mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '8px', color: '#888' }}>
+              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '10px', color: '#888' }}>
                 {sorted.length} matter{sorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
               </div>
             </>
