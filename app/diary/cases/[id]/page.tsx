@@ -609,13 +609,16 @@ export default function CaseDetailPage() {
     maxSize: MAX_SELECT_BYTES,
   })
 
-  // Opens the file in-app first (PDF/image shown inline, Download sits at
-  // the top) rather than immediately triggering a download — some mobile
-  // browsers download a PDF straight away instead of previewing it when
-  // it's just opened in a new tab, which isn't what you usually want.
+  // Opens the file in-app first (shown inline, Download/Open-in-Drive sits
+  // at the top) rather than immediately jumping away — either to a
+  // download or off to Drive's own site — which isn't what you usually
+  // want when you just want to glance at a document.
   async function openViewer(doc: CaseDocument) {
     if (doc.source === 'drive_link' && doc.external_url) {
-      window.open(doc.external_url, '_blank') // Drive's own viewer already opens to view, not download
+      const fileId = extractDriveFileId(doc.external_url)
+      if (!fileId) { window.open(doc.external_url, '_blank'); return } // couldn't parse it — fall back to opening it directly
+      setViewingDoc(doc)
+      setViewingUrl(`https://drive.google.com/file/d/${fileId}/preview`)
       return
     }
     if (!doc.storage_path) return
@@ -630,7 +633,12 @@ export default function CaseDetailPage() {
   }
 
   async function downloadViewingDoc() {
-    if (!viewingDoc?.storage_path) return
+    if (!viewingDoc) return
+    if (viewingDoc.source === 'drive_link') {
+      if (viewingDoc.external_url) window.open(viewingDoc.external_url, '_blank')
+      return
+    }
+    if (!viewingDoc.storage_path) return
     const supabase = createClient()
     // A fresh signed URL with `download` set forces the browser to save
     // the file instead of showing it — the inline preview URL above
@@ -1962,8 +1970,17 @@ export default function CaseDetailPage() {
                 onClick={downloadViewingDoc}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
               >
-                <Download className="w-3.5 h-3.5" />
-                Download
+                {viewingDoc.source === 'drive_link' ? (
+                  <>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open in Drive
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    Download
+                  </>
+                )}
               </button>
               <button
                 onClick={() => { setViewingDoc(null); setViewingUrl(null) }}
