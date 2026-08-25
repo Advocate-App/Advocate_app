@@ -126,6 +126,16 @@ const DOC_TYPES = [
   'pleading', 'notice', 'plaint', 'vakalatnama', 'affidavit', 'judgment', 'other',
 ]
 
+// The real ceiling — matches what the Supabase storage bucket itself
+// allows per file. Checked *after* compression, not before, since a big
+// mobile scan easily compresses down under this.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+// How large a file can be picked in the first place, before compression
+// runs. Generous, since a 40-60 MB phone scan is normal and compresses
+// down a long way — this just stops something wildly oversized (a video
+// picked by mistake, etc.) from being attempted at all.
+const MAX_SELECT_BYTES = 150 * 1024 * 1024
+
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   active: { bg: '#dcfce7', text: '#166534' },
   disposed: { bg: '#fee2e2', text: '#991b1b' },
@@ -215,9 +225,11 @@ export default function CaseDetailPage() {
   const [docsLoading, setDocsLoading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('other')
   const [uploadLabel, setUploadLabel] = useState('')
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]) // picked, not uploaded yet
   const [uploading, setUploading] = useState(false)
   const [compressingName, setCompressingName] = useState<string | null>(null)
   const [compressionNote, setCompressionNote] = useState<string | null>(null)
+  const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // Google Drive link state
@@ -452,13 +464,28 @@ export default function CaseDetailPage() {
   }
 
   // ───── Document Upload / Download / Delete ─────
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!advocateId || !id || !caseData || acceptedFiles.length === 0) return
+  // Picking/dropping a file only stages it — nothing is compressed or
+  // uploaded until "Upload" is pressed, so it's never uploading something
+  // by accident and there's a chance to double-check the name first.
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return
+    setPendingFiles((prev) => [...prev, ...acceptedFiles])
+  }, [])
+
+  function removePendingFile(index: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const uploadPendingFiles = useCallback(async () => {
+    if (!advocateId || !id || !caseData || pendingFiles.length === 0) return
+    const acceptedFiles = pendingFiles
     setUploading(true)
     setCompressionNote(null)
+    setUploadErrors([])
     const supabase = createClient()
     let totalBefore = 0
     let totalAfter = 0
+    const errors: string[] = []
     const baseLabel = uploadLabel.trim() || capitalize(uploadDocType)
 
     for (let i = 0; i < acceptedFiles.length; i++) {
@@ -467,6 +494,14 @@ export default function CaseDetailPage() {
       const { file, originalBytes, compressedBytes } = await compressFile(rawFile)
       totalBefore += originalBytes
       totalAfter += compressedBytes
+
+      // Compression usually gets a big scan well under the limit, but on
+      // the rare file where it can't, say so clearly instead of letting
+      // the upload just fail with no explanation.
+      if (file.size > MAX_UPLOAD_BYTES) {
+        errors.push(`${rawFile.name} — still ${formatBytes(file.size)} after compression, over the 50 MB limit. Try splitting it into smaller PDFs, or paste a Google Drive link instead.`)
+        continue
+      }
 
       // If more than one file dropped at once with the same label, number
       // them so they don't collide — "Petition 1", "Petition 2", etc.
@@ -483,7 +518,7 @@ export default function CaseDetailPage() {
         .upload(storagePath, file)
 
       if (uploadErr) {
-        console.error('Upload error:', uploadErr.message)
+        errors.push(`${rawFile.name} — upload failed: ${uploadErr.message}`)
         continue
       }
 
@@ -499,6 +534,7 @@ export default function CaseDetailPage() {
     }
 
     setCompressingName(null)
+    setUploadErrors(errors)
     // Always leave a visible confirmation that compression actually ran —
     // even when a file was already efficiently encoded and didn't shrink
     // further, so it's never just silent/ambiguous whether it worked.
@@ -510,8 +546,9 @@ export default function CaseDetailPage() {
     )
     setUploading(false)
     setUploadLabel('')
+    setPendingFiles([])
     loadDocuments()
-  }, [advocateId, id, caseData, uploadDocType, uploadLabel, loadDocuments])
+  }, [advocateId, id, caseData, uploadDocType, uploadLabel, pendingFiles, loadDocuments])
 
   // ───── Google Drive link ─────
   function extractDriveFileId(url: string): string | null {
@@ -558,14 +595,15 @@ export default function CaseDetailPage() {
     loadDocuments()
   }
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
     onDrop,
+    disabled: uploading,
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/png': ['.png'],
     },
-    maxSize: 10 * 1024 * 1024,
+    maxSize: MAX_SELECT_BYTES,
   })
 
   async function downloadDoc(doc: CaseDocument) {
@@ -1550,30 +1588,81 @@ export default function CaseDetailPage() {
 
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                uploading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+              } ${
                 isDragActive
                   ? 'border-blue-400 bg-blue-50'
                   : 'border-gray-300 hover:border-gray-400'
               }`}
             >
               <input {...getInputProps()} />
-              {uploading ? (
-                <div className="flex items-center justify-center gap-2 text-gray-500">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {compressingName ? `Compressing ${compressingName}…` : 'Uploading...'}
-                </div>
-              ) : (
-                <div>
-                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-600">
-                    {isDragActive
-                      ? 'Drop files here...'
-                      : 'Drag and drop PDF, JPG, or PNG files here, or click to browse'}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">Max 10 MB per file — compressed automatically, no visible quality loss</p>
-                </div>
-              )}
+              <div>
+                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-600">
+                  {isDragActive
+                    ? 'Drop files here...'
+                    : 'Drag and drop PDF, JPG, or PNG files here, or click to browse'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">Nothing uploads until you press Upload below — compressed automatically, no visible quality loss</p>
+              </div>
             </div>
+            {fileRejections.length > 0 && (
+              <p className="text-xs text-red-500 mt-2 text-center">
+                {fileRejections.map((r) => r.file.name).join(', ')} — {
+                  fileRejections[0].errors[0]?.code === 'file-too-large'
+                    ? `over the 150 MB selection limit (${formatBytes(fileRejections[0].file.size)}).`
+                    : 'not a supported file type (PDF, JPG, or PNG only).'
+                }
+              </p>
+            )}
+
+            {/* Staged files — picked, waiting to be uploaded */}
+            {pendingFiles.length > 0 && (
+              <div className="mt-4 border border-gray-200 rounded-lg divide-y divide-gray-100">
+                {pendingFiles.map((f, i) => (
+                  <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-gray-700 truncate" title={f.name}>{f.name}</p>
+                      <p className="text-xs text-gray-400">{formatBytes(f.size)}</p>
+                    </div>
+                    {!uploading && (
+                      <button
+                        onClick={() => removePendingFile(i)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors shrink-0"
+                        title="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="p-3">
+                  <button
+                    onClick={uploadPendingFiles}
+                    disabled={uploading}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                    style={{ background: '#1e3a5f' }}
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {compressingName ? `Compressing ${compressingName}…` : 'Uploading...'}
+                      </>
+                    ) : (
+                      `Upload ${pendingFiles.length} file${pendingFiles.length !== 1 ? 's' : ''}`
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+            {uploadErrors.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {uploadErrors.map((e, i) => (
+                  <p key={i} className="text-xs text-red-500 text-center">{e}</p>
+                ))}
+              </div>
+            )}
             {compressionNote && (
               <p className="text-xs text-emerald-600 font-medium mt-2 text-center">✓ {compressionNote}</p>
             )}
