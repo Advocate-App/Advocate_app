@@ -115,6 +115,35 @@ function isFinalStage(stage: string | null): boolean {
   return !!stage && FINAL_STAGES.has(stage)
 }
 
+// Short form for the Diary's Stage column only — the case detail page and
+// the stage picker dropdown still show/use the full name. Anything not in
+// this map (already-short values like "805", "EMI", "Other"…) is shown as-is.
+const STAGE_ABBREV: Record<string, string> = {
+  'Summons': 'Sum',
+  'Appearance': 'App',
+  'Written Statement': 'WS',
+  'Issues': 'Iss',
+  'Plaintiff Evidence': 'PE',
+  'Defendant Evidence': 'DE',
+  'Arguments': 'Arg',
+  'Judgment Reserved': 'JR',
+  'Judgment': 'Judg',
+  'Execution': 'Exec',
+  'Lok Adalat': 'LA',
+  'Disposed': 'Disp',
+  'Adjourned': 'Adj',
+  'For Orders': 'FO',
+  'Admission': 'Adm',
+  'Regular Hearing': 'RH',
+  'Final Hearing': 'FH',
+  'Service Complete': 'SC',
+  'Counter Affidavit': 'CA',
+  'Rejoinder': 'Rej',
+}
+function stageAbbrev(stage: string): string {
+  return STAGE_ABBREV[stage] || stage
+}
+
 function rowBorderColor(hearing: HearingRow): string {
   if (hearing.happened) return '#22c55e'
   const hDate = parseISO(hearing.hearing_date)
@@ -799,11 +828,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-24">Court</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-24">Case No.</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-16 md:w-24">Court</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20 md:w-24">Case No.</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 1</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 2</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-28">Stage</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-14 md:w-28">Stage</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20">Next</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-40 print:hidden">Action</th>
                 </tr>
@@ -841,7 +870,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name */}
                         <td className="border border-gray-200 px-2 py-2">
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-base font-semibold text-gray-700 whitespace-nowrap"
+                            className="inline-block px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700 whitespace-nowrap"
                             style={{ background: courtBg }}
                           >
                             {courtShortLabel(courtCode, h.caseData.court_name)}
@@ -849,7 +878,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         </td>
 
                         {/* Case No. */}
-                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-base text-gray-800 whitespace-nowrap">
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm md:text-base text-gray-800 whitespace-nowrap">
                           <Link href={`/diary/cases/${h.case_id}`} className="font-bold hover:underline" style={{ color: '#1e3a5f' }}>
                             {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                           </Link>
@@ -912,10 +941,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           ) : (
                             <button
                               onClick={() => setEditingStage(h.id)}
-                              className="text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
-                              title="Click to change stage"
+                              className="text-xs md:text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+                              title={h.stage_on_date ? `${h.stage_on_date} — click to change` : 'Click to change stage'}
                             >
-                              {h.stage_on_date || <span className="text-gray-300">—</span>}
+                              {h.stage_on_date ? stageAbbrev(h.stage_on_date) : <span className="text-gray-300">—</span>}
                             </button>
                           )}
                         </td>
