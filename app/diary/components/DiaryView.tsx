@@ -582,25 +582,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Month calendar days
   const monthDays = eachDayOfInterval({ start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) })
 
-  // Print slip — sizes shrink automatically as the day's case count goes up,
-  // so the slip always fits on a single printed page instead of spilling
-  // onto a second sheet on busy days. Plenty of room to be readable on a
-  // normal day (<=10 cases); tightens up step by step from there.
+  // Print slip — one fixed, generously-sized layout (no more shrinking the
+  // font as the day gets busier). When more cases show up than fit in one
+  // column, the overflow spills into a second column on the same A4 sheet
+  // instead of shrinking text or spilling onto a second printed page — so
+  // it can be folded down the middle, giving two full sides to carry
+  // instead of one.
   const slipSorted = [...hearings].sort((a, b) =>
     getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
   )
-  const slipCount = slipSorted.length
-  // Stage now sits inline on the same line as everything else (see render
-  // below) instead of on its own line — one clean line per case again,
-  // and that freed-up row height is spent on bigger, easier-to-read text.
-  const slipTier =
-    slipCount <= 10
-      ? { topPad: '18mm', base: '14px', lineH: 1.6, rowPad: '1.2mm', caseNo: '13px', stage: '10px', header: '15px', footer: '10px' }
-      : slipCount <= 16
-      ? { topPad: '14mm', base: '12px', lineH: 1.5, rowPad: '0.8mm', caseNo: '11px', stage: '9px', header: '13px', footer: '9px' }
-      : slipCount <= 24
-      ? { topPad: '10mm', base: '10.5px', lineH: 1.4, rowPad: '0.5mm', caseNo: '9.5px', stage: '8.5px', header: '11.5px', footer: '8px' }
-      : { topPad: '8mm', base: '9px', lineH: 1.3, rowPad: '0.3mm', caseNo: '8.5px', stage: '8px', header: '10.5px', footer: '7px' }
+  const SLIP_ROWS_PER_COLUMN = 20
+  const slipRightCases = slipSorted.slice(0, SLIP_ROWS_PER_COLUMN)
+  const slipLeftCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN) // empty on a normal day
 
   return (
     <div className="max-w-6xl print:max-w-none">
@@ -1312,15 +1305,21 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           body:not(.print-slip-mode) table th { font-size: 11px !important; padding: 2px 4px !important; }
           body:not(.print-slip-mode) table td { font-size: 11px !important; padding: 2px 4px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
-          body.print-slip-mode { display: flex; justify-content: flex-end; padding: ${slipTier.topPad} 8mm 0 0; }
+          body.print-slip-mode { display: flex; justify-content: flex-end; padding: 18mm 8mm 0 8mm; }
           body.print-slip-mode #diary-slip {
-            display: block !important;
+            display: flex !important;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8mm;
             position: static !important;
-            width: 92mm !important;
+            width: 100% !important;
             height: auto !important;
+          }
+          body.print-slip-mode .slip-col {
+            width: 92mm;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: ${slipTier.base};
-            line-height: ${slipTier.lineH};
+            font-size: 14px;
+            line-height: 1.6;
             border: 0.5px solid #999;
             padding: 4mm 4mm 3mm;
             box-sizing: border-box;
@@ -1334,36 +1333,52 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         <div id="diary-slip" style={{ display: 'none', pointerEvents: 'none', position: 'fixed', top: 0, left: '-9999px', width: 0, height: 0, overflow: 'hidden' }}>
         {(() => {
           const dayName = format(selectedDate, 'EEEE')
-          return (
-            <>
-              <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '2mm' }}>
-                <div style={{ fontSize: slipTier.header, fontWeight: 'bold' }}>
-                  {advocateName ? `Adv. ${advocateName} · ` : ''}{format(selectedDate, 'd MMM yyyy')} ({dayName.slice(0, 3)} · {HINDI_DAYS[dayName] || ''})
-                </div>
+          const headerLine = (
+            <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '2mm' }}>
+              <div style={{ fontSize: '15px', fontWeight: 'bold' }}>
+                {advocateName ? `Adv. ${advocateName} · ` : ''}{format(selectedDate, 'd MMM yyyy')} ({dayName.slice(0, 3)} · {HINDI_DAYS[dayName] || ''})
               </div>
-              {slipSorted.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: slipTier.base, color: '#999' }}>No hearings today</div>
+            </div>
+          )
+          const footerLine = (count: number) => (
+            <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '10px', color: '#888' }}>
+              {count} matter{count !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
+            </div>
+          )
+          // The empty left column is still rendered (just invisible) rather
+          // than omitted — with only one flex child, space-between would
+          // pack it to the left edge instead of the right, breaking the
+          // normal-day layout where the slip has always sat on the right.
+          const renderColumn = (cases: typeof slipSorted, hideIfEmpty = false) => (
+            <div className="slip-col" style={hideIfEmpty && cases.length === 0 ? { visibility: 'hidden' } : undefined}>
+              {headerLine}
+              {cases.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '14px', color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {slipSorted.map((h) => (
-                    <li key={h.id} style={{ padding: `${slipTier.rowPad} 0`, borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
+                  {cases.map((h) => (
+                    <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: slipTier.caseNo, flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '13px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                         <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
                         {h.caseData.case_stage && (
-                          <span style={{ fontSize: slipTier.stage, color: '#888' }}>({stageAbbrev(h.caseData.case_stage)})</span>
+                          <span style={{ fontSize: '10px', color: '#888' }}>({stageAbbrev(h.caseData.case_stage)})</span>
                         )}
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
-              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: slipTier.footer, color: '#888' }}>
-                {slipSorted.length} matter{slipSorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
-              </div>
+              {footerLine(cases.length)}
+            </div>
+          )
+          return (
+            <>
+              {renderColumn(slipLeftCases, true)}
+              {renderColumn(slipRightCases)}
             </>
           )
         })()}
