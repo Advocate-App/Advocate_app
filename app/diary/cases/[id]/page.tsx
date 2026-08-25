@@ -491,9 +491,10 @@ export default function CaseDetailPage() {
     for (let i = 0; i < acceptedFiles.length; i++) {
       const rawFile = acceptedFiles[i]
       setCompressingName(rawFile.name)
-      const { file, originalBytes, compressedBytes } = await compressFile(rawFile)
+      const { file, originalBytes, compressedBytes, note } = await compressFile(rawFile)
       totalBefore += originalBytes
       totalAfter += compressedBytes
+      if (note) errors.push(`${rawFile.name} — ${note}`)
 
       // Compression usually gets a big scan well under the limit, but on
       // the rare file where it can't, say so clearly instead of letting
