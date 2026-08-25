@@ -870,16 +870,22 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name */}
                         <td className="border border-gray-200 px-2 py-2">
                           <span
-                            className="inline-block px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700 whitespace-nowrap"
+                            className="inline-block max-w-[60px] md:max-w-none truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700"
                             style={{ background: courtBg }}
+                            title={courtShortLabel(courtCode, h.caseData.court_name)}
                           >
                             {courtShortLabel(courtCode, h.caseData.court_name)}
                           </span>
                         </td>
 
                         {/* Case No. */}
-                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm md:text-base text-gray-800 whitespace-nowrap">
-                          <Link href={`/diary/cases/${h.case_id}`} className="font-bold hover:underline" style={{ color: '#1e3a5f' }}>
+                        <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm md:text-base text-gray-800">
+                          <Link
+                            href={`/diary/cases/${h.case_id}`}
+                            className="inline-block max-w-[70px] md:max-w-none truncate align-bottom font-bold hover:underline"
+                            style={{ color: '#1e3a5f' }}
+                            title={formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
+                          >
                             {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
                           </Link>
                         </td>
