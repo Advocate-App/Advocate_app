@@ -297,14 +297,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     loadAdvocate()
   }, [])
 
-  // Fetch month hearing dates for navigator — this advocate's hearings
-  // (or, for a junior, both senior advocates' hearings combined)
-  const fetchMonthDates = useCallback(async () => {
+  // Fetch hearing counts for a given month — this advocate's hearings (or,
+  // for a junior, both senior advocates' combined). Takes the month to
+  // fetch explicitly so both the month strip (selectedDate's month) and
+  // the "jump to any date" calendar (whatever month it's browsing, which
+  // can be a different one) can each pull counts for their own month.
+  const fetchMonthDates = useCallback(async (monthDate: Date) => {
     if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) return
     try {
       const supabase = createClient()
-      const start = toYMD(startOfMonth(selectedDate))
-      const end = toYMD(endOfMonth(selectedDate))
+      const start = toYMD(startOfMonth(monthDate))
+      const end = toYMD(endOfMonth(monthDate))
       const myCases = await fetchAllRows<{ id: string }>((from, to) =>
         supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
       )
@@ -323,11 +326,21 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           .lte('hearing_date', end)
         if (data) data.forEach((h: { hearing_date: string }) => counts.set(h.hearing_date, (counts.get(h.hearing_date) || 0) + 1))
       }
-      setMonthHearingCounts(counts)
+      // Merge into the existing map (keyed by date) rather than replace it
+      // wholesale — the month strip and the calendar picker can have two
+      // different months' worth of counts loaded at the same time.
+      setMonthHearingCounts((prev) => {
+        const next = new Map(prev)
+        for (const key of next.keys()) {
+          if (key >= start && key <= end) next.delete(key)
+        }
+        counts.forEach((v, k) => next.set(k, v))
+        return next
+      })
     } catch (err) {
       console.error('fetchMonthDates error:', err)
     }
-  }, [visibleAdvocateIds, selectedDate])
+  }, [visibleAdvocateIds])
 
   // Fetch hearings for selected date
   const fetchHearings = useCallback(async () => {
@@ -388,8 +401,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   }, [visibleAdvocateIds, selectedDate])
 
   useEffect(() => {
-    if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates() }
-  }, [visibleAdvocateIds, fetchHearings, fetchMonthDates])
+    if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates(selectedDate) }
+  }, [visibleAdvocateIds, selectedDate, fetchHearings, fetchMonthDates])
+
+  // Calendar picker can browse a different month than the selected date —
+  // fetch counts for whatever month it's currently showing.
+  useEffect(() => {
+    if (showCalendarPicker) fetchMonthDates(pickerViewDate)
+  }, [showCalendarPicker, pickerViewDate, fetchMonthDates])
 
   // push (not replace) — each date you visit becomes a real back-button
   // stop. replace() was overwriting the same history entry every time,
@@ -522,7 +541,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setAddSaving(false)
     resetAddModal()
     fetchHearings()
-    fetchMonthDates()
+    fetchMonthDates(selectedDate)
   }
 
   function resetAddModal() {
@@ -731,13 +750,21 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   <>
                     {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`blank-${i}`} />)}
                     {days.map((day) => {
-                      const isSelected = toYMD(day) === toYMD(selectedDate)
+                      const ymd = toYMD(day)
+                      const count = monthHearingCounts.get(ymd) || 0
+                      const isSelected = ymd === toYMD(selectedDate)
                       const isT = isToday(day)
+                      const badgeClass =
+                        count === 0 ? '' :
+                        count <= 2 ? 'bg-emerald-100 text-emerald-700' :
+                        count <= 5 ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
                       return (
                         <button
                           key={day.toISOString()}
                           onClick={() => { goToDate(day); setShowCalendarPicker(false) }}
-                          className={`aspect-square rounded-lg text-sm font-medium transition-colors ${
+                          title={count > 0 ? `${format(day, 'd MMM')} — ${count} hearing${count !== 1 ? 's' : ''}` : format(day, 'd MMM')}
+                          className={`aspect-square rounded-lg text-sm font-medium transition-colors flex flex-col items-center justify-center gap-0.5 ${
                             isSelected
                               ? 'text-white'
                               : isT
@@ -746,7 +773,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           }`}
                           style={isSelected ? { background: '#1e3a5f' } : {}}
                         >
-                          {format(day, 'd')}
+                          <span>{format(day, 'd')}</span>
+                          {count > 0 && (
+                            <span
+                              className={`min-w-[15px] px-1 rounded-full text-[9px] font-bold leading-[13px] ${
+                                isSelected ? 'bg-white text-[#1e3a5f]' : badgeClass
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          )}
                         </button>
                       )
                     })}
