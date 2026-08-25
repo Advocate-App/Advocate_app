@@ -26,7 +26,6 @@ import {
   Upload,
   ExternalLink,
   Loader2,
-  Calendar,
   X,
   Check,
   ListChecks,
@@ -111,14 +110,13 @@ interface CaseDocument {
   source: 'upload' | 'drive_link'
 }
 
-type TabKey = 'overview' | 'tracking' | 'hearings' | 'documents' | 'ecourts'
+// Tracking, Hearings, and eCourts used to be separate tabs — Tracking and
+// Hearings are now sections inside Overview, and eCourts was dropped.
+type TabKey = 'overview' | 'documents'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
-  { key: 'tracking', label: 'Tracking' },
-  { key: 'hearings', label: 'Hearings' },
   { key: 'documents', label: 'Documents' },
-  { key: 'ecourts', label: 'eCourts' },
 ]
 
 const DOC_TYPES = [
@@ -263,16 +261,6 @@ export default function CaseDetailPage() {
   const [companySearch, setCompanySearch] = useState('')
   const [companySaving, setCompanySaving] = useState(false)
 
-  // eCourts state
-  const [cnrInput, setCnrInput] = useState('')
-  const [cnrSaving, setCnrSaving] = useState(false)
-  const [ecourtForm, setEcourtForm] = useState({
-    stage: '',
-    next_hearing_date: '',
-    notes: '',
-  })
-  const [ecourtSaving, setEcourtSaving] = useState(false)
-
   // ───── Load case ─────
   useEffect(() => {
     async function loadCase() {
@@ -364,11 +352,12 @@ export default function CaseDetailPage() {
     setCompanies((data as { id: string; name: string }[]) || [])
   }, [])
 
-  // Fetch tab-specific data on tab switch
+  // Fetch tab-specific data on tab switch — Overview now carries hearings,
+  // tracking, and important points all in one page, so it needs all three;
+  // Documents stays lazy-loaded since it's its own tab.
   useEffect(() => {
-    if (activeTab === 'hearings') loadHearings()
+    if (activeTab === 'overview') { loadHearings(); loadImportantPoints(); loadCompanies() }
     if (activeTab === 'documents') loadDocuments()
-    if (activeTab === 'tracking') { loadImportantPoints(); loadCompanies() }
   }, [activeTab, loadHearings, loadDocuments, loadImportantPoints, loadCompanies])
 
   // ───── Hearing CRUD ─────
@@ -779,51 +768,6 @@ export default function CaseDetailPage() {
     loadImportantPoints()
   }
 
-  // ───── eCourts: save CNR ─────
-  async function saveCnr(e: React.FormEvent) {
-    e.preventDefault()
-    if (!cnrInput.trim() || !caseData) return
-    setCnrSaving(true)
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('cases')
-      .update({ ecourts_cnr: cnrInput.trim().toUpperCase() })
-      .eq('id', id)
-    if (!error) {
-      setCaseData({ ...caseData, ecourts_cnr: cnrInput.trim().toUpperCase() })
-      setCnrInput('')
-    }
-    setCnrSaving(false)
-  }
-
-  // ───── eCourts: update from eCourts ─────
-  async function saveEcourtUpdate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!ecourtForm.stage && !ecourtForm.next_hearing_date) return
-    setEcourtSaving(true)
-    const supabase = createClient()
-
-    // Insert as a new hearing row
-    await supabase.from('hearings').insert({
-      case_id: id,
-      hearing_date: new Date().toISOString().split('T')[0],
-      stage_on_date: ecourtForm.stage || null,
-      next_hearing_date: ecourtForm.next_hearing_date || null,
-      outcome_notes: ecourtForm.notes || 'Updated from eCourts',
-      happened: true,
-      appearing_advocate_name: 'self',
-    })
-
-    // Update case stage
-    if (ecourtForm.stage && caseData) {
-      await supabase.from('cases').update({ case_stage: ecourtForm.stage }).eq('id', id)
-      setCaseData({ ...caseData, case_stage: ecourtForm.stage })
-    }
-
-    setEcourtForm({ stage: '', next_hearing_date: '', notes: '' })
-    setEcourtSaving(false)
-  }
-
   // ───── Stages based on court level ─────
   const stages = caseData?.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
 
@@ -862,6 +806,19 @@ export default function CaseDetailPage() {
   const statusColor = STATUS_COLORS[caseData.status] || STATUS_COLORS.active
   const ecourtLink = eCourtsDeepLink(caseData.ecourts_cnr)
 
+  // Last Date / Next Date for the Overview tab — derived from the actual
+  // hearing history rather than a stored field, so it's always accurate.
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+  const lastHearingDate = hearings
+    .map((h) => h.hearing_date)
+    .filter((d) => d <= todayStr)
+    .sort()
+    .at(-1) || null
+  const nextHearingDate = hearings
+    .map((h) => h.hearing_date)
+    .filter((d) => d > todayStr)
+    .sort()[0] || null
+
   return (
     <div className="max-w-5xl">
       {/* ── Breadcrumb ── */}
@@ -899,6 +856,14 @@ export default function CaseDetailPage() {
             >
               {capitalize(caseData.status)}
             </span>
+            {lastHearingDate && (
+              <>
+                <span className="text-gray-300">|</span>
+                <span className="text-sm text-gray-600">
+                  Last date: <span className="font-medium text-gray-800">{formatDate(lastHearingDate)}</span>
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -949,13 +914,15 @@ export default function CaseDetailPage() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+      {/* ── Tabs — frozen at the top while the page scrolls, so there's no
+           need to scroll back up to switch tabs, and it takes up less
+           room than before ── */}
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 sticky top-0 z-10 py-1.5" style={{ background: '#fafaf7' }}>
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors"
+            className="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
             style={
               activeTab === tab.key
                 ? { background: '#1e3a5f', color: '#fff' }
@@ -971,65 +938,14 @@ export default function CaseDetailPage() {
 
       {/* ======== OVERVIEW ======== */}
       {activeTab === 'overview' && (
-        <div className="space-y-6">
-          {/* Case Story */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                <BookOpen className="w-4 h-4" /> Case Story
-              </h3>
-              {!readOnly && storyDirty && (
-                <button
-                  onClick={saveStory}
-                  disabled={storySaving}
-                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
-                  style={{ background: '#1e3a5f' }}
-                >
-                  {storySaving ? 'Saving…' : 'Save'}
-                </button>
-              )}
-            </div>
-            <textarea
-              value={storyDraft}
-              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
-              onBlur={() => { if (storyDirty) saveStory() }}
-              rows={5}
-              readOnly={readOnly}
-              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50 cursor-default' : ''}`}
-            />
-          </section>
-
-          {/* Parties */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              Parties
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Plaintiff / Petitioner" value={caseData.party_plaintiff} />
-              <Field label="Defendant / Respondent" value={caseData.party_defendant} />
-            </div>
-          </section>
-
-          {/* Client Info */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              Client Information
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Client Name" value={caseData.client_name} />
-              <Field label="Client Side" value={capitalize(caseData.client_side)} />
-              <Field label="Our Role" value={caseData.our_role} />
-              <Field label="Opposite Advocate" value={caseData.opposite_advocate} />
-            </div>
-          </section>
-
+        <div className="space-y-4">
           {/* Court Info */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
               Court Details
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Next Date" value={formatDate(nextHearingDate)} />
               <Field label="Court Level" value={caseData.court_level === 'high_court' ? 'High Court' : 'District Court'} />
               <Field label="Court" value={getCourtLabel(caseData.court_code || caseData.court_name)} />
               {caseData.hc_bench && <Field label="HC Bench" value={capitalize(caseData.hc_bench)} />}
@@ -1038,7 +954,7 @@ export default function CaseDetailPage() {
               <Field label="Current Stage" value={caseData.case_stage} />
               <Field label="Status" value={capitalize(caseData.status)} />
             </div>
-            <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="mt-3 pt-3 border-t border-gray-100">
               <span className="block text-xs text-gray-500 mb-2">Lok Adalat</span>
               <div className="flex items-center gap-5">
                 <label className={`flex items-center gap-2 text-sm text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
@@ -1068,60 +984,326 @@ export default function CaseDetailPage() {
             </div>
           </section>
 
-          {/* Dates */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              Important Dates
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Filed Date" value={formatDate(caseData.filed_date)} />
-              <Field label="Disposal Date" value={formatDate(caseData.disposal_date)} />
-              <Field label="Created" value={formatDate(caseData.created_at)} />
-              <Field label="Last Updated" value={formatDate(caseData.updated_at)} />
+          {/* Hearings */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+                Hearings
+              </h3>
+              {!showHearingForm && !readOnly && (
+                <button
+                  onClick={() => { resetHearingForm(); setShowHearingForm(true) }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-white text-xs font-medium"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Hearing
+                </button>
+              )}
             </div>
+
+            {/* Inline Hearing Form */}
+            {showHearingForm && (
+              <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-semibold text-gray-700">
+                    {editingHearingId ? 'Edit Hearing' : 'New Hearing'}
+                  </h4>
+                  <button onClick={resetHearingForm} className="text-gray-400 hover:text-gray-600">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <form onSubmit={saveHearing} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Hearing Date *
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={hearingForm.hearing_date}
+                        onChange={(e) => setHearingForm({ ...hearingForm, hearing_date: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Stage on Date
+                      </label>
+                      <select
+                        value={hearingForm.stage_on_date}
+                        onChange={(e) => setHearingForm({ ...hearingForm, stage_on_date: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      >
+                        <option value="">-- Select Stage --</option>
+                        {stages.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Next Hearing Date
+                      </label>
+                      <input
+                        type="date"
+                        value={hearingForm.next_hearing_date}
+                        onChange={(e) => setHearingForm({ ...hearingForm, next_hearing_date: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Purpose
+                      </label>
+                      <input
+                        type="text"
+                        value={hearingForm.purpose}
+                        onChange={(e) => setHearingForm({ ...hearingForm, purpose: e.target.value })}
+                        placeholder="e.g., Arguments, Evidence"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Appearing Advocate
+                      </label>
+                      <input
+                        type="text"
+                        value={hearingForm.appearing_advocate_name}
+                        onChange={(e) => setHearingForm({ ...hearingForm, appearing_advocate_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={hearingForm.happened}
+                          onChange={(e) => setHearingForm({ ...hearingForm, happened: e.target.checked })}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        Already happened
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                    <textarea
+                      value={hearingForm.outcome_notes}
+                      onChange={(e) => setHearingForm({ ...hearingForm, outcome_notes: e.target.value })}
+                      rows={2}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      placeholder="Outcome, adjournment reason, etc."
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      disabled={hearingSaving}
+                      className="px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
+                      style={{ background: '#1e3a5f' }}
+                    >
+                      {hearingSaving ? 'Saving...' : editingHearingId ? 'Update Hearing' : 'Save Hearing'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetHearingForm}
+                      className="px-5 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 bg-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Hearings Timeline */}
+            {hearingsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              </div>
+            ) : hearings.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No hearings recorded yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {hearings.map((h) => (
+                  <div
+                    key={h.id}
+                    className="bg-gray-50 border border-gray-200 rounded-lg p-3 relative"
+                    style={{ borderLeftWidth: '4px', borderLeftColor: hearingBorderColor(h) }}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold text-gray-800">
+                            {formatDate(h.hearing_date)}
+                          </span>
+                          {h.stage_on_date && (
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                              {h.stage_on_date}
+                            </span>
+                          )}
+                          {h.happened && (
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                              Done
+                            </span>
+                          )}
+                        </div>
+                        {h.purpose && (
+                          <p className="text-sm text-gray-600">
+                            <span className="text-gray-400">Purpose:</span> {h.purpose}
+                          </p>
+                        )}
+                        {h.appearing_advocate_name && (
+                          <p className="text-sm text-gray-600">
+                            <span className="text-gray-400">Appeared by:</span> {h.appearing_advocate_name}
+                          </p>
+                        )}
+                        {h.next_hearing_date && (
+                          <p className="text-sm text-gray-600">
+                            <span className="text-gray-400">Next date:</span> {formatDate(h.next_hearing_date)}
+                            {h.set_by_name && <span className="text-gray-400"> — set by {h.set_by_name}</span>}
+                          </p>
+                        )}
+                        {h.outcome_notes && (
+                          <p className="text-sm text-gray-500 mt-1 italic">{h.outcome_notes}</p>
+                        )}
+                        {h.adjournment_reason && (
+                          <p className="text-sm text-amber-600 mt-1">
+                            Adjournment: {h.adjournment_reason}
+                          </p>
+                        )}
+                      </div>
+                      {!readOnly && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => startEditHearing(h)}
+                            className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteHearing(h.id)}
+                            className="p-1.5 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
-          {/* CNR & Notes */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              Notes & eCourts
+          {/* Case Story */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                <BookOpen className="w-4 h-4" /> Case Story
+              </h3>
+              {!readOnly && storyDirty && (
+                <button
+                  onClick={saveStory}
+                  disabled={storySaving}
+                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  {storySaving ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </div>
+            <textarea
+              value={storyDraft}
+              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
+              onBlur={() => { if (storyDirty) saveStory() }}
+              rows={3}
+              readOnly={readOnly}
+              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50 cursor-default' : ''}`}
+            />
+          </section>
+
+          {/* Important Points */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+              <ListChecks className="w-4 h-4" /> Important Points
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <Field label="Notes" value={caseData.notes} />
+            <p className="text-xs text-gray-500 mb-3">
+              Your arguments and supporting points for this case — add them one at a time as they come to you.
+            </p>
+
+            {!readOnly && (
+              <form onSubmit={addImportantPoint} className="flex flex-col sm:flex-row gap-3 mb-4">
+                <input
+                  type="text"
+                  value={newPointText}
+                  onChange={(e) => setNewPointText(e.target.value)}
+                  placeholder="Add a point…"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                />
+                <button
+                  type="submit"
+                  disabled={addingPoint || !newPointText.trim()}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </form>
+            )}
+
+            {pointsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
               </div>
-              <div>
-                <span className="block text-xs text-gray-500 mb-1">eCourts CNR</span>
-                {caseData.ecourts_cnr ? (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-gray-800">{caseData.ecourts_cnr}</span>
-                    {ecourtLink && (
-                      <a
-                        href={ecourtLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md"
-                        style={{ background: '#dbeafe', color: '#1e40af' }}
+            ) : importantPoints.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No points added yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {importantPoints.map((p) => (
+                  <div key={p.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-lg p-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{p.point_text}</p>
+                      <p className="text-xs text-gray-400 mt-1">{formatDate(p.created_at)}</p>
+                    </div>
+                    {readOnly ? null : deletePointId === p.id ? (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => deleteImportantPoint(p.id)}
+                          className="px-2 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeletePointId(null)}
+                          className="px-2 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeletePointId(p.id)}
+                        className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0"
+                        title="Delete"
                       >
-                        <ExternalLink className="w-3 h-3" />
-                        Open on eCourts
-                      </a>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
-                ) : (
-                  <span className="text-sm text-gray-400">Not set</span>
-                )}
+                ))}
               </div>
-            </div>
+            )}
           </section>
-        </div>
-      )}
 
-      {/* ======== TRACKING ======== */}
-      {activeTab === 'tracking' && (
-        <div className="space-y-6">
-          {/* Case Progress */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
+          {/* Case Tracking */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Case Tracking
             </h3>
@@ -1281,296 +1463,67 @@ export default function CaseDetailPage() {
             </div>
           </section>
 
-          {/* Important Points */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
-              <ListChecks className="w-4 h-4" /> Important Points
+          {/* Parties & Client */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              Parties & Client
             </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              Your arguments and supporting points for this case — add them one at a time as they come to you.
-            </p>
-
-            {!readOnly && (
-              <form onSubmit={addImportantPoint} className="flex flex-col sm:flex-row gap-3 mb-5">
-                <input
-                  type="text"
-                  value={newPointText}
-                  onChange={(e) => setNewPointText(e.target.value)}
-                  placeholder="Add a point…"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                />
-                <button
-                  type="submit"
-                  disabled={addingPoint || !newPointText.trim()}
-                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
-                  style={{ background: '#1e3a5f' }}
-                >
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </form>
-            )}
-
-            {pointsLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-              </div>
-            ) : importantPoints.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No points added yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {importantPoints.map((p) => (
-                  <div key={p.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-lg p-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{p.point_text}</p>
-                      <p className="text-xs text-gray-400 mt-1">{formatDate(p.created_at)}</p>
-                    </div>
-                    {readOnly ? null : deletePointId === p.id ? (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => deleteImportantPoint(p.id)}
-                          className="px-2 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700"
-                        >
-                          Delete
-                        </button>
-                        <button
-                          onClick={() => setDeletePointId(null)}
-                          className="px-2 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setDeletePointId(p.id)}
-                        className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Plaintiff / Petitioner" value={caseData.party_plaintiff} />
+              <Field label="Defendant / Respondent" value={caseData.party_defendant} />
+              <Field label="Client Name" value={caseData.client_name} />
+              <Field label="Client Side" value={capitalize(caseData.client_side)} />
+              <Field label="Our Role" value={caseData.our_role} />
+              <Field label="Opposite Advocate" value={caseData.opposite_advocate} />
+            </div>
           </section>
-        </div>
-      )}
 
-      {/* ======== HEARINGS ======== */}
-      {activeTab === 'hearings' && (
-        <div>
-          {/* Add Hearing Button */}
-          {!showHearingForm && !readOnly && (
-            <button
-              onClick={() => { resetHearingForm(); setShowHearingForm(true) }}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium mb-6"
-              style={{ background: '#1e3a5f' }}
-            >
-              <Plus className="w-4 h-4" />
-              Add Hearing
-            </button>
-          )}
+          {/* Dates */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              Important Dates
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Filed Date" value={formatDate(caseData.filed_date)} />
+              <Field label="Disposal Date" value={formatDate(caseData.disposal_date)} />
+              <Field label="Created" value={formatDate(caseData.created_at)} />
+              <Field label="Last Updated" value={formatDate(caseData.updated_at)} />
+            </div>
+          </section>
 
-          {/* Inline Hearing Form */}
-          {showHearingForm && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-gray-700">
-                  {editingHearingId ? 'Edit Hearing' : 'New Hearing'}
-                </h3>
-                <button onClick={resetHearingForm} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
+          {/* CNR & Notes */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+              Notes & eCourts
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <Field label="Notes" value={caseData.notes} />
               </div>
-              <form onSubmit={saveHearing} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Hearing Date *
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={hearingForm.hearing_date}
-                      onChange={(e) => setHearingForm({ ...hearingForm, hearing_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Stage on Date
-                    </label>
-                    <select
-                      value={hearingForm.stage_on_date}
-                      onChange={(e) => setHearingForm({ ...hearingForm, stage_on_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                    >
-                      <option value="">-- Select Stage --</option>
-                      {stages.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Next Hearing Date
-                    </label>
-                    <input
-                      type="date"
-                      value={hearingForm.next_hearing_date}
-                      onChange={(e) => setHearingForm({ ...hearingForm, next_hearing_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Purpose
-                    </label>
-                    <input
-                      type="text"
-                      value={hearingForm.purpose}
-                      onChange={(e) => setHearingForm({ ...hearingForm, purpose: e.target.value })}
-                      placeholder="e.g., Arguments, Evidence"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Appearing Advocate
-                    </label>
-                    <input
-                      type="text"
-                      value={hearingForm.appearing_advocate_name}
-                      onChange={(e) => setHearingForm({ ...hearingForm, appearing_advocate_name: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={hearingForm.happened}
-                        onChange={(e) => setHearingForm({ ...hearingForm, happened: e.target.checked })}
-                        className="w-4 h-4 rounded border-gray-300"
-                      />
-                      Already happened
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
-                  <textarea
-                    value={hearingForm.outcome_notes}
-                    onChange={(e) => setHearingForm({ ...hearingForm, outcome_notes: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                    placeholder="Outcome, adjournment reason, etc."
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    type="submit"
-                    disabled={hearingSaving}
-                    className="px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
-                    style={{ background: '#1e3a5f' }}
-                  >
-                    {hearingSaving ? 'Saving...' : editingHearingId ? 'Update Hearing' : 'Save Hearing'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetHearingForm}
-                    className="px-5 py-2 rounded-lg border border-gray-300 text-sm text-gray-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Hearings Timeline */}
-          {hearingsLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-            </div>
-          ) : hearings.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500">No hearings recorded yet.</p>
-            </div>
-          ) : (
-            <div className="space-y-0">
-              {hearings.map((h) => (
-                <div
-                  key={h.id}
-                  className="bg-white border border-gray-200 rounded-xl p-5 mb-3 relative"
-                  style={{ borderLeftWidth: '4px', borderLeftColor: hearingBorderColor(h) }}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-3 mb-1">
-                        <span className="text-sm font-semibold text-gray-800">
-                          {formatDate(h.hearing_date)}
-                        </span>
-                        {h.stage_on_date && (
-                          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                            {h.stage_on_date}
-                          </span>
-                        )}
-                        {h.happened && (
-                          <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
-                            Done
-                          </span>
-                        )}
-                      </div>
-                      {h.purpose && (
-                        <p className="text-sm text-gray-600">
-                          <span className="text-gray-400">Purpose:</span> {h.purpose}
-                        </p>
-                      )}
-                      {h.appearing_advocate_name && (
-                        <p className="text-sm text-gray-600">
-                          <span className="text-gray-400">Appeared by:</span> {h.appearing_advocate_name}
-                        </p>
-                      )}
-                      {h.next_hearing_date && (
-                        <p className="text-sm text-gray-600">
-                          <span className="text-gray-400">Next date:</span> {formatDate(h.next_hearing_date)}
-                          {h.set_by_name && <span className="text-gray-400"> — set by {h.set_by_name}</span>}
-                        </p>
-                      )}
-                      {h.outcome_notes && (
-                        <p className="text-sm text-gray-500 mt-1 italic">{h.outcome_notes}</p>
-                      )}
-                      {h.adjournment_reason && (
-                        <p className="text-sm text-amber-600 mt-1">
-                          Adjournment: {h.adjournment_reason}
-                        </p>
-                      )}
-                    </div>
-                    {!readOnly && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => startEditHearing(h)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteHearing(h.id)}
-                          className="p-1.5 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+              <div>
+                <span className="block text-xs text-gray-500 mb-1">eCourts CNR</span>
+                {caseData.ecourts_cnr ? (
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm text-gray-800">{caseData.ecourts_cnr}</span>
+                    {ecourtLink && (
+                      <a
+                        href={ecourtLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md"
+                        style={{ background: '#dbeafe', color: '#1e40af' }}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Open on eCourts
+                      </a>
                     )}
                   </div>
-                </div>
-              ))}
+                ) : (
+                  <span className="text-sm text-gray-400">Not set</span>
+                )}
+              </div>
             </div>
-          )}
+          </section>
         </div>
       )}
 
@@ -1823,136 +1776,6 @@ export default function CaseDetailPage() {
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ======== ECOURTS ======== */}
-      {activeTab === 'ecourts' && (
-        <div className="space-y-6">
-          {/* CNR Section */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              CNR Number
-            </h3>
-            {caseData.ecourts_cnr ? (
-              <div className="flex flex-wrap items-center gap-4">
-                <span className="font-mono text-lg text-gray-800">{caseData.ecourts_cnr}</span>
-                {ecourtLink && (
-                  <a
-                    href={ecourtLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
-                    style={{ background: '#1e3a5f' }}
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open on eCourts
-                  </a>
-                )}
-              </div>
-            ) : readOnly ? (
-              <span className="text-sm text-gray-400">Not set</span>
-            ) : (
-              <form onSubmit={saveCnr} className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
-                <div className="flex-1 w-full sm:w-auto">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Enter CNR Number
-                  </label>
-                  <input
-                    type="text"
-                    value={cnrInput}
-                    onChange={(e) => setCnrInput(e.target.value)}
-                    placeholder="e.g., RJUD020012345672025"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 font-mono"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={cnrSaving || !cnrInput.trim()}
-                  className="px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 shrink-0"
-                  style={{ background: '#1e3a5f' }}
-                >
-                  {cnrSaving ? 'Saving...' : 'Save CNR'}
-                </button>
-              </form>
-            )}
-          </section>
-
-          {/* eCourts Dashboard Link */}
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              eCourts Dashboard
-            </h3>
-            <a
-              href="https://services.ecourts.gov.in/ecourtindia_v6/?p=casestatus/index"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Open eCourts AdvocateID Dashboard
-            </a>
-          </section>
-
-          {/* Update from eCourts */}
-          {!readOnly && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
-              Update from eCourts
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              After checking eCourts, enter the latest stage and next date here. This will create a new hearing record.
-            </p>
-            <form onSubmit={saveEcourtUpdate} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    New Stage
-                  </label>
-                  <select
-                    value={ecourtForm.stage}
-                    onChange={(e) => setEcourtForm({ ...ecourtForm, stage: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                  >
-                    <option value="">-- Select Stage --</option>
-                    {stages.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Next Hearing Date
-                  </label>
-                  <input
-                    type="date"
-                    value={ecourtForm.next_hearing_date}
-                    onChange={(e) => setEcourtForm({ ...ecourtForm, next_hearing_date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
-                <textarea
-                  value={ecourtForm.notes}
-                  onChange={(e) => setEcourtForm({ ...ecourtForm, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
-                  placeholder="Any notes from eCourts update"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={ecourtSaving || (!ecourtForm.stage && !ecourtForm.next_hearing_date)}
-                className="px-5 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50"
-                style={{ background: '#1e3a5f' }}
-              >
-                {ecourtSaving ? 'Saving...' : 'Save eCourts Update'}
-              </button>
-            </form>
-          </section>
           )}
         </div>
       )}
