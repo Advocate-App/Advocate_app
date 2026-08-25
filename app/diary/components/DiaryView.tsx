@@ -570,6 +570,23 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Month calendar days
   const monthDays = eachDayOfInterval({ start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) })
 
+  // Print slip — sizes shrink automatically as the day's case count goes up,
+  // so the slip always fits on a single printed page instead of spilling
+  // onto a second sheet on busy days. Plenty of room to be readable on a
+  // normal day (<=10 cases); tightens up step by step from there.
+  const slipSorted = [...hearings].sort((a, b) =>
+    getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
+  )
+  const slipCount = slipSorted.length
+  const slipTier =
+    slipCount <= 10
+      ? { topPad: '18mm', base: '13px', lineH: 1.5, rowPad: '1mm', caseNo: '12px', stage: '10px', header: '14px', footer: '10px' }
+      : slipCount <= 16
+      ? { topPad: '14mm', base: '11px', lineH: 1.35, rowPad: '0.6mm', caseNo: '10.5px', stage: '9px', header: '12px', footer: '9px' }
+      : slipCount <= 24
+      ? { topPad: '10mm', base: '9.5px', lineH: 1.25, rowPad: '0.4mm', caseNo: '9px', stage: '8px', header: '11px', footer: '8px' }
+      : { topPad: '8mm', base: '8.5px', lineH: 1.15, rowPad: '0.2mm', caseNo: '8px', stage: '7.5px', header: '10px', footer: '7px' }
+
   return (
     <div className="max-w-6xl print:max-w-none">
 
@@ -1217,15 +1234,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           body:not(.print-slip-mode) table th { font-size: 11px !important; padding: 2px 4px !important; }
           body:not(.print-slip-mode) table td { font-size: 11px !important; padding: 2px 4px !important; }
           body.print-slip-mode > *:not(#diary-slip) { display: none !important; }
-          body.print-slip-mode { display: flex; justify-content: flex-end; padding: 18mm 8mm 0 0; }
+          body.print-slip-mode { display: flex; justify-content: flex-end; padding: ${slipTier.topPad} 8mm 0 0; }
           body.print-slip-mode #diary-slip {
             display: block !important;
             position: static !important;
             width: 92mm !important;
             height: auto !important;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: 13px;
-            line-height: 1.5;
+            font-size: ${slipTier.base};
+            line-height: ${slipTier.lineH};
             border: 0.5px solid #999;
             padding: 4mm 4mm 3mm;
             box-sizing: border-box;
@@ -1239,31 +1256,28 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         <div id="diary-slip" style={{ display: 'none', pointerEvents: 'none', position: 'fixed', top: 0, left: '-9999px', width: 0, height: 0, overflow: 'hidden' }}>
         {(() => {
           const dayName = format(selectedDate, 'EEEE')
-          const sorted = [...hearings].sort((a, b) =>
-            getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
-          )
           return (
             <>
               <div style={{ textAlign: 'center', borderBottom: '1.5px solid #222', paddingBottom: '1.5mm', marginBottom: '2mm' }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                <div style={{ fontSize: slipTier.header, fontWeight: 'bold' }}>
                   {advocateName ? `Adv. ${advocateName} · ` : ''}{format(selectedDate, 'd MMM yyyy')} ({dayName.slice(0, 3)} · {HINDI_DAYS[dayName] || ''})
                 </div>
               </div>
-              {sorted.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '13px', color: '#999' }}>No hearings today</div>
+              {slipSorted.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: slipTier.base, color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {sorted.map((h) => (
-                    <li key={h.id} style={{ padding: '1mm 0', borderBottom: '0.3px dotted #ddd' }}>
+                  {slipSorted.map((h) => (
+                    <li key={h.id} style={{ padding: `${slipTier.rowPad} 0`, borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm' }}>
                         <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: '12px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: slipTier.caseNo, flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                         <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
                       </div>
                       {h.caseData.case_stage && (
-                        <div style={{ fontSize: '10px', color: '#777', fontStyle: 'italic', marginTop: '0.3mm' }}>
+                        <div style={{ fontSize: slipTier.stage, color: '#777', fontStyle: 'italic', marginTop: '0.3mm' }}>
                           {h.caseData.case_stage}
                         </div>
                       )}
@@ -1271,8 +1285,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   ))}
                 </ul>
               )}
-              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: '10px', color: '#888' }}>
-                {sorted.length} matter{sorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
+              <div style={{ marginTop: '2mm', paddingTop: '1.5mm', borderTop: '0.5px solid #bbb', textAlign: 'center', fontSize: slipTier.footer, color: '#888' }}>
+                {slipSorted.length} matter{slipSorted.length !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
               </div>
             </>
           )
