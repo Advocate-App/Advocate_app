@@ -9,6 +9,7 @@ import { format, isToday, isPast, parseISO } from 'date-fns'
 import { compressFile } from '@/lib/compress'
 import {
   getCourtLabel,
+  getCourtShortLabel,
   eCourtsDeepLink,
   formatCaseNumber,
   DISTRICT_STAGES,
@@ -156,6 +157,21 @@ function capitalize(s: string | null): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+// Builds a human-readable file name for an uploaded document, e.g.
+// "Ram_Laxman(NI-1)_Petition.pdf" — so a downloaded file makes sense on
+// sight (which case, which court, what it is) instead of whatever name
+// the phone's camera/scanner app gave it.
+function sanitizeFileNamePart(s: string): string {
+  return s.trim().replace(/[/\\:*?"<>|]/g, '').replace(/\s+/g, ' ').slice(0, 60)
+}
+function buildDocFileName(caseData: CaseRecord, label: string, ext: string): string {
+  const p1 = sanitizeFileNamePart(caseData.party_plaintiff) || 'Party1'
+  const p2 = sanitizeFileNamePart(caseData.party_defendant) || 'Party2'
+  const courtTag = sanitizeFileNamePart(getCourtShortLabel(caseData.court_code || '') || caseData.court_name)
+  const lbl = sanitizeFileNamePart(label) || 'Document'
+  return `${p1}_${p2}(${courtTag})_${lbl}.${ext}`
+}
+
 function hearingBorderColor(hearing: Hearing): string {
   if (hearing.happened) return '#22c55e'
   const d = parseISO(hearing.hearing_date)
@@ -198,6 +214,7 @@ export default function CaseDetailPage() {
   const [documents, setDocuments] = useState<CaseDocument[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
   const [uploadDocType, setUploadDocType] = useState('other')
+  const [uploadLabel, setUploadLabel] = useState('')
   const [uploading, setUploading] = useState(false)
   const [compressingName, setCompressingName] = useState<string | null>(null)
   const [compressionNote, setCompressionNote] = useState<string | null>(null)
@@ -436,21 +453,29 @@ export default function CaseDetailPage() {
 
   // ───── Document Upload / Download / Delete ─────
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!advocateId || !id || acceptedFiles.length === 0) return
+    if (!advocateId || !id || !caseData || acceptedFiles.length === 0) return
     setUploading(true)
     setCompressionNote(null)
     const supabase = createClient()
     let totalBefore = 0
     let totalAfter = 0
+    const baseLabel = uploadLabel.trim() || capitalize(uploadDocType)
 
-    for (const rawFile of acceptedFiles) {
+    for (let i = 0; i < acceptedFiles.length; i++) {
+      const rawFile = acceptedFiles[i]
       setCompressingName(rawFile.name)
       const { file, originalBytes, compressedBytes } = await compressFile(rawFile)
       totalBefore += originalBytes
       totalAfter += compressedBytes
 
+      // If more than one file dropped at once with the same label, number
+      // them so they don't collide — "Petition 1", "Petition 2", etc.
+      const label = acceptedFiles.length > 1 ? `${baseLabel} ${i + 1}` : baseLabel
+      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
+      const displayName = buildDocFileName(caseData, label, ext)
+
       const ts = Date.now()
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const safeName = displayName.replace(/[^a-zA-Z0-9().-]/g, '_')
       const storagePath = `${advocateId}/${id}/${ts}_${safeName}`
 
       const { error: uploadErr } = await supabase.storage
@@ -464,7 +489,7 @@ export default function CaseDetailPage() {
 
       await supabase.from('case_documents').insert({
         case_id: id,
-        file_name: file.name,
+        file_name: displayName,
         storage_path: storagePath,
         file_size_bytes: file.size,
         mime_type: file.type,
@@ -474,13 +499,19 @@ export default function CaseDetailPage() {
     }
 
     setCompressingName(null)
-    if (totalBefore > 0 && totalAfter < totalBefore) {
-      const pct = Math.round((1 - totalAfter / totalBefore) * 100)
-      setCompressionNote(`Compressed ${formatBytes(totalBefore)} → ${formatBytes(totalAfter)} (${pct}% smaller)`)
-    }
+    // Always leave a visible confirmation that compression actually ran —
+    // even when a file was already efficiently encoded and didn't shrink
+    // further, so it's never just silent/ambiguous whether it worked.
+    const pct = totalBefore > 0 ? Math.round((1 - totalAfter / totalBefore) * 100) : 0
+    setCompressionNote(
+      pct > 0
+        ? `Compressed ${formatBytes(totalBefore)} → ${formatBytes(totalAfter)} (${pct}% smaller)`
+        : `Compression checked — ${formatBytes(totalAfter)} (already efficiently encoded, nothing more to shrink)`
+    )
     setUploading(false)
+    setUploadLabel('')
     loadDocuments()
-  }, [advocateId, id, uploadDocType, loadDocuments])
+  }, [advocateId, id, caseData, uploadDocType, uploadLabel, loadDocuments])
 
   // ───── Google Drive link ─────
   function extractDriveFileId(url: string): string | null {
@@ -1496,7 +1527,26 @@ export default function CaseDetailPage() {
                   ))}
                 </select>
               </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Name this document
+                </label>
+                <input
+                  type="text"
+                  value={uploadLabel}
+                  onChange={(e) => setUploadLabel(e.target.value)}
+                  placeholder="e.g. Petition"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900"
+                />
+              </div>
             </div>
+            {caseData && (
+              <p className="text-xs text-gray-400 mb-3">
+                Will be saved as: <span className="font-mono text-gray-600">
+                  {buildDocFileName(caseData, uploadLabel.trim() || capitalize(uploadDocType), 'pdf')}
+                </span>
+              </p>
+            )}
 
             <div
               {...getRootProps()}
