@@ -81,8 +81,14 @@ function fileLooksLikePhoto(bitmap: ImageBitmap): boolean {
   return bitmap.width * bitmap.height > 300 * 300
 }
 
-const PDF_PAGE_TARGET_DPI = 160 // comfortably sharp for reading/printing
-const PDF_PAGE_JPEG_QUALITY = 0.82
+// 160 DPI / 0.82 quality was too conservative — real-world compressors
+// (smallpdf's default tier included) land around 130 DPI / ~70% JPEG
+// quality for a "still completely readable" document scan, and that's
+// where the actual size win is. Phone scans are usually captured at
+// 250-350+ DPI equivalent, so this is a big, legitimate drop in pixel
+// count, not just a quality-slider tweak.
+const PDF_PAGE_TARGET_DPI = 130
+const PDF_PAGE_JPEG_QUALITY = 0.72
 
 async function structuralPdfResave(bytes: ArrayBuffer): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true })

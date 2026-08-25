@@ -231,6 +231,8 @@ export default function CaseDetailPage() {
   const [compressionNote, setCompressionNote] = useState<string | null>(null)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [viewingDoc, setViewingDoc] = useState<CaseDocument | null>(null)
+  const [viewingUrl, setViewingUrl] = useState<string | null>(null)
 
   // Google Drive link state
   const [driveUrl, setDriveUrl] = useState('')
@@ -607,16 +609,35 @@ export default function CaseDetailPage() {
     maxSize: MAX_SELECT_BYTES,
   })
 
-  async function downloadDoc(doc: CaseDocument) {
+  // Opens the file in-app first (PDF/image shown inline, Download sits at
+  // the top) rather than immediately triggering a download — some mobile
+  // browsers download a PDF straight away instead of previewing it when
+  // it's just opened in a new tab, which isn't what you usually want.
+  async function openViewer(doc: CaseDocument) {
     if (doc.source === 'drive_link' && doc.external_url) {
-      window.open(doc.external_url, '_blank')
+      window.open(doc.external_url, '_blank') // Drive's own viewer already opens to view, not download
       return
     }
     if (!doc.storage_path) return
     const supabase = createClient()
     const { data } = await supabase.storage
       .from('case-documents')
-      .createSignedUrl(doc.storage_path, 60)
+      .createSignedUrl(doc.storage_path, 300)
+    if (data?.signedUrl) {
+      setViewingDoc(doc)
+      setViewingUrl(data.signedUrl)
+    }
+  }
+
+  async function downloadViewingDoc() {
+    if (!viewingDoc?.storage_path) return
+    const supabase = createClient()
+    // A fresh signed URL with `download` set forces the browser to save
+    // the file instead of showing it — the inline preview URL above
+    // deliberately doesn't set this.
+    const { data } = await supabase.storage
+      .from('case-documents')
+      .createSignedUrl(viewingDoc.storage_path, 60, { download: viewingDoc.file_name })
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
@@ -1751,7 +1772,7 @@ export default function CaseDetailPage() {
 
                   <div className="flex gap-2 mt-auto pt-2 border-t border-gray-100">
                     <button
-                      onClick={() => downloadDoc(doc)}
+                      onClick={() => openViewer(doc)}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
                     >
                       {doc.source === 'drive_link' ? (
@@ -1761,8 +1782,8 @@ export default function CaseDetailPage() {
                         </>
                       ) : (
                         <>
-                          <Download className="w-3.5 h-3.5" />
-                          Download
+                          <Eye className="w-3.5 h-3.5" />
+                          View
                         </>
                       )}
                     </button>
@@ -1925,6 +1946,44 @@ export default function CaseDetailPage() {
             </form>
           </section>
           )}
+        </div>
+      )}
+
+      {/* ── Document Viewer — opens the file inline first; Download sits
+           at the top so it's only used when actually needed ── */}
+      {viewingDoc && viewingUrl && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex flex-col">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white border-b border-gray-200">
+            <p className="text-sm font-medium text-gray-800 truncate min-w-0" title={viewingDoc.file_name}>
+              {viewingDoc.file_name}
+            </p>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={downloadViewingDoc}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download
+              </button>
+              <button
+                onClick={() => { setViewingDoc(null); setViewingUrl(null) }}
+                className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 bg-gray-800">
+            {viewingDoc.mime_type?.startsWith('image/') ? (
+              <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={viewingUrl} alt={viewingDoc.file_name} className="max-w-full max-h-full object-contain" />
+              </div>
+            ) : (
+              <iframe src={viewingUrl} title={viewingDoc.file_name} className="w-full h-full border-0" />
+            )}
+          </div>
         </div>
       )}
     </div>

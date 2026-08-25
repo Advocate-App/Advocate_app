@@ -195,8 +195,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Month hearing dates for navigator
-  const [monthHearingDates, setMonthHearingDates] = useState<Set<string>>(new Set())
+  // Month hearing dates for navigator — date (YYYY-MM-DD) -> hearing count,
+  // so the calendar strip can show workload per day, not just "has any"
+  const [monthHearingCounts, setMonthHearingCounts] = useState<Map<string, number>>(new Map())
 
   // Case history panel
   const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null)
@@ -305,7 +306,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const myCaseIds = myCases.map((c) => c.id)
       // PostgREST URL limit — batch if needed
       const BATCH = 200
-      const dates = new Set<string>()
+      const counts = new Map<string, number>()
       for (let i = 0; i < myCaseIds.length; i += BATCH) {
         const batch = myCaseIds.slice(i, i + BATCH)
         const { data } = await supabase
@@ -314,9 +315,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           .in('case_id', batch)
           .gte('hearing_date', start)
           .lte('hearing_date', end)
-        if (data) data.forEach((h: { hearing_date: string }) => dates.add(h.hearing_date))
+        if (data) data.forEach((h: { hearing_date: string }) => counts.set(h.hearing_date, (counts.get(h.hearing_date) || 0) + 1))
       }
-      setMonthHearingDates(dates)
+      setMonthHearingCounts(counts)
     } catch (err) {
       console.error('fetchMonthDates error:', err)
     }
@@ -712,9 +713,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         <div className="flex items-center gap-1 min-w-max">
           {monthDays.map((day) => {
             const ymd = toYMD(day)
-            const hasHearings = monthHearingDates.has(ymd)
+            const count = monthHearingCounts.get(ymd) || 0
             const isSelected = ymd === toYMD(selectedDate)
             const isT = isToday(day)
+            // Light/moderate/heavy so a busy vs. clean day is visible at a
+            // glance, not just readable as a number.
+            const badgeClass =
+              count === 0 ? '' :
+              count <= 2 ? 'bg-emerald-100 text-emerald-700' :
+              count <= 5 ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
             return (
               <button
                 key={ymd}
@@ -727,14 +735,20 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     : 'hover:bg-gray-100 text-gray-600'
                 }`}
                 style={isSelected ? { background: '#1e3a5f' } : {}}
-                title={hasHearings ? `${format(day, 'd MMM')} — has hearings` : format(day, 'd MMM')}
+                title={count > 0 ? `${format(day, 'd MMM')} — ${count} hearing${count !== 1 ? 's' : ''}` : format(day, 'd MMM')}
               >
                 <span className="text-[9px] opacity-60">{format(day, 'EEE').toUpperCase()}</span>
                 <span>{format(day, 'd')}</span>
-                {hasHearings ? (
-                  <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
+                {count > 0 ? (
+                  <span
+                    className={`min-w-[16px] px-1 rounded-full text-[9px] font-bold leading-[14px] mt-0.5 ${
+                      isSelected ? 'bg-white text-[#1e3a5f]' : badgeClass
+                    }`}
+                  >
+                    {count}
+                  </span>
                 ) : (
-                  <span className="w-1.5 h-1.5 mt-0.5" />
+                  <span className="h-[14px] mt-0.5" />
                 )}
               </button>
             )
