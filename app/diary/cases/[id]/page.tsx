@@ -228,7 +228,9 @@ export default function CaseDetailPage() {
   const [compressingName, setCompressingName] = useState<string | null>(null)
   const [compressionNote, setCompressionNote] = useState<string | null>(null)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [docPendingDelete, setDocPendingDelete] = useState<CaseDocument | null>(null)
+  const [deletingDoc, setDeletingDoc] = useState(false)
+  const [driveDeleteWarning, setDriveDeleteWarning] = useState<string | null>(null)
   const [viewingDoc, setViewingDoc] = useState<CaseDocument | null>(null)
   const [viewingUrl, setViewingUrl] = useState<string | null>(null)
 
@@ -247,6 +249,10 @@ export default function CaseDetailPage() {
   const [storyDraft, setStoryDraft] = useState('')
   const [storyDirty, setStoryDirty] = useState(false)
   const [storySaving, setStorySaving] = useState(false)
+  // Once a story's been written, it's locked (shown as plain text) until
+  // "Edit" is clicked — first-time entry (nothing written yet) stays
+  // directly editable, since there's nothing to accidentally disturb yet.
+  const [storyEditing, setStoryEditing] = useState(false)
   const [orderDateDraft, setOrderDateDraft] = useState('')
 
   const [importantPoints, setImportantPoints] = useState<ImportantPoint[]>([])
@@ -638,11 +644,40 @@ export default function CaseDetailPage() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
-  async function deleteDoc(docId: string, storagePath: string | null) {
+  // Deleting a Drive-linked document also deletes the real file in Drive
+  // now, not just the app's reference — so this asks for a real
+  // confirmation (see the modal below) rather than a quick button-swap.
+  async function confirmDeleteDoc() {
+    if (!docPendingDelete) return
+    const doc = docPendingDelete
+    setDeletingDoc(true)
+    setDriveDeleteWarning(null)
     const supabase = createClient()
-    if (storagePath) await supabase.storage.from('case-documents').remove([storagePath])
-    await supabase.from('case_documents').delete().eq('id', docId)
-    setDeleteConfirmId(null)
+
+    if (doc.source === 'drive_link' && doc.external_url) {
+      const fileId = extractDriveFileId(doc.external_url)
+      if (fileId) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          try {
+            const res = await fetch('/api/documents/delete-drive-file', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ fileId }),
+            })
+            if (!res.ok) setDriveDeleteWarning('Removed from the case, but couldn\'t delete the file in Google Drive — you may need to remove it there yourself.')
+          } catch {
+            setDriveDeleteWarning('Removed from the case, but couldn\'t reach Google Drive to delete the file there — you may need to remove it there yourself.')
+          }
+        }
+      }
+    } else if (doc.storage_path) {
+      await supabase.storage.from('case-documents').remove([doc.storage_path])
+    }
+
+    await supabase.from('case_documents').delete().eq('id', doc.id)
+    setDeletingDoc(false)
+    setDocPendingDelete(null)
     loadDocuments()
   }
 
@@ -741,8 +776,15 @@ export default function CaseDetailPage() {
     if (!error) {
       setCaseData({ ...caseData, case_story: storyDraft.trim() || null })
       setStoryDirty(false)
+      setStoryEditing(false)
     }
     setStorySaving(false)
+  }
+
+  function cancelStoryEdit() {
+    setStoryDraft(caseData?.case_story || '')
+    setStoryDirty(false)
+    setStoryEditing(false)
   }
 
   // ───── Tracking: important points CRUD ─────
@@ -1201,32 +1243,57 @@ export default function CaseDetailPage() {
             )}
           </section>
 
-          {/* Case Story */}
+          {/* Case Story — locked/plain-text once something's been written,
+               so a stray tap can't disturb it; "Edit" unlocks it. Empty
+               (first time) stays directly typeable. */}
           <section className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
                 <BookOpen className="w-4 h-4" /> Case Story
               </h3>
-              {!readOnly && storyDirty && (
+              {!readOnly && caseData.case_story && !storyEditing && (
                 <button
-                  onClick={saveStory}
-                  disabled={storySaving}
-                  className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
-                  style={{ background: '#1e3a5f' }}
+                  onClick={() => setStoryEditing(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
-                  {storySaving ? 'Saving…' : 'Save'}
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit
                 </button>
               )}
+              {!readOnly && storyEditing && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={saveStory}
+                    disabled={storySaving}
+                    className="px-4 py-1.5 rounded-lg text-white text-xs font-medium disabled:opacity-50"
+                    style={{ background: '#1e3a5f' }}
+                  >
+                    {storySaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancelStoryEdit}
+                    disabled={storySaving}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
-            <textarea
-              value={storyDraft}
-              onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
-              onBlur={() => { if (storyDirty) saveStory() }}
-              rows={3}
-              readOnly={readOnly}
-              placeholder="Paste the core story of the case here, so it's quick to check on the go…"
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50 cursor-default' : ''}`}
-            />
+            {caseData.case_story && !storyEditing ? (
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{caseData.case_story}</p>
+            ) : (
+              <textarea
+                value={storyDraft}
+                onChange={(e) => { setStoryDraft(e.target.value); setStoryDirty(true) }}
+                onBlur={() => { if (storyDirty && !caseData.case_story) saveStory() }}
+                autoFocus={storyEditing}
+                rows={3}
+                readOnly={readOnly}
+                placeholder="Paste the core story of the case here, so it's quick to check on the go…"
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 ${readOnly ? 'bg-gray-50 cursor-default' : ''}`}
+              />
+            )}
           </section>
 
           {/* Important Points */}
@@ -1685,6 +1752,12 @@ export default function CaseDetailPage() {
           </div>
           )}
 
+          {driveDeleteWarning && (
+            <div className="mb-4 px-4 py-2.5 rounded-lg text-sm flex items-start gap-2" style={{ background: '#fef3c7', color: '#92400e' }}>
+              <span>{driveDeleteWarning}</span>
+            </div>
+          )}
+
           {/* Documents Grid */}
           {docsLoading ? (
             <div className="flex justify-center py-12">
@@ -1748,24 +1821,9 @@ export default function CaseDetailPage() {
                         </>
                       )}
                     </button>
-                    {readOnly ? null : deleteConfirmId === doc.id ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => deleteDoc(doc.id, doc.storage_path)}
-                          className="px-3 py-1.5 rounded-md text-xs font-medium text-white bg-red-600 hover:bg-red-700"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="px-3 py-1.5 rounded-md text-xs font-medium text-gray-600 bg-gray-100"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
+                    {!readOnly && (
                       <button
-                        onClick={() => setDeleteConfirmId(doc.id)}
+                        onClick={() => setDocPendingDelete(doc)}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1823,6 +1881,37 @@ export default function CaseDetailPage() {
             ) : (
               <iframe src={viewingUrl} title={viewingDoc.file_name} className="w-full h-full border-0" />
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Document confirmation ── */}
+      {docPendingDelete && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-xl max-w-sm w-full p-6">
+            <h3 className="text-base font-semibold text-gray-800 mb-2">Delete this document?</h3>
+            <p className="text-sm text-gray-600 mb-1 break-words">{docPendingDelete.file_name}</p>
+            <p className="text-sm text-gray-500 mb-5">
+              {docPendingDelete.source === 'drive_link'
+                ? 'This will also permanently delete the file in Google Drive, not just remove it from this case. This can\'t be undone.'
+                : 'This can\'t be undone.'}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmDeleteDoc}
+                disabled={deletingDoc}
+                className="flex-1 px-4 py-2 rounded-lg text-white text-sm font-medium bg-red-600 hover:bg-red-700 disabled:opacity-50"
+              >
+                {deletingDoc ? 'Deleting…' : 'Yes, Delete'}
+              </button>
+              <button
+                onClick={() => setDocPendingDelete(null)}
+                disabled={deletingDoc}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
