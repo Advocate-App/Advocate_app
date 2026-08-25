@@ -8,20 +8,23 @@
  *    photos (much higher resolution than any screen or printout needs) are
  *    also downscaled to a sane cap.
  *
- *  - PDFs: two strategies, and whichever comes out smaller wins.
+ *  - PDFs: every file — regardless of size — goes through both strategies
+ *    below, and whichever result comes out smaller is used (never worse
+ *    than just leaving the file alone).
  *      1. A lossless structural re-save through pdf-lib (dedupes objects,
  *         compresses the internal structure). This never touches embedded
  *         images/text, so it's the safe fallback for born-digital PDFs
  *         (petitions, judgments) — but for a PHONE-SCANNED PDF, the file
  *         size is almost entirely the embedded photo of each page, and
  *         this pass barely touches that, so it does close to nothing.
- *      2. For scan-like PDFs (judged by average bytes per page — a real
- *         text page is tens of KB, a phone-camera page is hundreds of KB
- *         to a few MB), each page is rendered to a canvas at a generous
- *         160 DPI and re-saved as a JPEG, then rebuilt into a fresh PDF.
- *         160 DPI is well above what's needed to read or print a document
- *         clearly — this is the same technique tools like smallpdf use,
- *         and is where the real size reduction comes from for scans.
+ *      2. Every page is rendered to a canvas at a generous 160 DPI and
+ *         re-saved as a JPEG, then rebuilt into a fresh PDF. 160 DPI is
+ *         well above what's needed to read or print a document clearly —
+ *         this is the same technique tools like smallpdf use, and is
+ *         where the real size reduction comes from for scans. For a
+ *         text-only PDF this version usually comes out bigger, so the
+ *         comparison above quietly discards it and keeps the structural
+ *         (or original) result instead — text stays selectable/searchable.
  *
  * If compression ever produces a *larger* file than the original, or fails
  * for any reason, the original file is returned untouched.
@@ -78,14 +81,6 @@ function fileLooksLikePhoto(bitmap: ImageBitmap): boolean {
   return bitmap.width * bitmap.height > 300 * 300
 }
 
-// A real text page is tens of KB; a phone-camera photo of a page is hundreds
-// of KB to a few MB. Treat a PDF as scan-like — worth rasterizing — if
-// EITHER the whole file is already large (a multi-page scan where each
-// page isn't huge individually can still average low per page) OR the
-// per-page average is high (catches a single giant scanned page too).
-// Below both, leave the (selectable, searchable) text alone.
-const SCAN_LIKE_TOTAL_BYTES = 1.5 * 1024 * 1024
-const SCAN_LIKE_BYTES_PER_PAGE = 300 * 1024
 const PDF_PAGE_TARGET_DPI = 160 // comfortably sharp for reading/printing
 const PDF_PAGE_JPEG_QUALITY = 0.82
 
@@ -97,11 +92,13 @@ async function structuralPdfResave(bytes: ArrayBuffer): Promise<Uint8Array> {
 // Renders every page to a canvas and rebuilds the PDF from JPEG page images
 // — this is what actually shrinks a scanned document, since pdf-lib alone
 // only touches the PDF's container, not the giant photo inside each page.
-async function rasterizePdf(bytes: ArrayBuffer, originalBytes: number): Promise<Uint8Array | null> {
+// Tried on every PDF regardless of size — a born-digital text PDF simply
+// won't come out smaller this way and loses to the structural pass (or
+// the original) in the comparison below, so there's no size cutoff here;
+// every file gets an honest shot at compressing.
+async function rasterizePdf(bytes: ArrayBuffer): Promise<Uint8Array | null> {
   const doc = await pdfjsLib.getDocument({ data: bytes }).promise
   if (doc.numPages === 0) return null
-  const worthIt = originalBytes >= SCAN_LIKE_TOTAL_BYTES || originalBytes / doc.numPages > SCAN_LIKE_BYTES_PER_PAGE
-  if (!worthIt) return null
 
   const out = await PDFDocument.create()
   const scale = PDF_PAGE_TARGET_DPI / 72 // PDF points are 1/72 inch
@@ -135,8 +132,6 @@ async function rasterizePdf(bytes: ArrayBuffer, originalBytes: number): Promise<
 }
 
 async function compressPdfFile(file: File): Promise<{ bytes: Uint8Array; note?: string }> {
-  const originalBytes = file.size
-
   // Independent copies — pdf-lib/pdf.js can detach the buffer they're
   // handed, so each strategy needs its own untouched copy to read from.
   const structuralBytes = await file.arrayBuffer()
@@ -149,7 +144,7 @@ async function compressPdfFile(file: File): Promise<{ bytes: Uint8Array; note?: 
     structuralErr = e instanceof Error ? e.message : String(e)
     return null
   })
-  const rasterized = await rasterizePdf(rasterBytes, originalBytes).catch((e) => {
+  const rasterized = await rasterizePdf(rasterBytes).catch((e) => {
     rasterErr = e instanceof Error ? e.message : String(e)
     return null
   })
@@ -159,18 +154,14 @@ async function compressPdfFile(file: File): Promise<{ bytes: Uint8Array; note?: 
 
   if (!best) {
     throw new Error(
-      `structural: ${structuralErr || 'skipped'}; rasterize: ${rasterErr || 'skipped/not scan-like'}`
+      `structural: ${structuralErr || 'skipped'}; rasterize: ${rasterErr || 'skipped'}`
     )
   }
-  // Rasterization was skipped (file judged not scan-like) but structural
-  // barely shrank it — worth telling the truth about rather than implying
-  // it's now as small as it could be.
-  const note =
-    !rasterized && !rasterErr && structural && structural.length > originalBytes * 0.9
-      ? 'not scan-like enough to rasterize, only a light structural pass applied'
-      : rasterErr && !rasterized
-      ? `page rendering failed (${rasterErr}), used the lighter structural pass instead`
-      : undefined
+  // Rasterizing failed outright but the structural pass still produced
+  // something — worth explaining why this one didn't shrink as much.
+  const note = rasterErr && !rasterized
+    ? `page rendering failed (${rasterErr}), used the lighter structural pass instead`
+    : undefined
 
   return { bytes: best, note }
 }
