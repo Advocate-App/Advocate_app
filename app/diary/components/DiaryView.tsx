@@ -579,14 +579,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
   )
   const slipCount = slipSorted.length
+  // Stage now sits inline on the same line as everything else (see render
+  // below) instead of on its own line — one clean line per case again,
+  // and that freed-up row height is spent on bigger, easier-to-read text.
   const slipTier =
     slipCount <= 10
-      ? { topPad: '18mm', base: '13px', lineH: 1.5, rowPad: '1mm', caseNo: '12px', stage: '10px', header: '14px', footer: '10px' }
+      ? { topPad: '18mm', base: '14px', lineH: 1.6, rowPad: '1.2mm', caseNo: '13px', stage: '10px', header: '15px', footer: '10px' }
       : slipCount <= 16
-      ? { topPad: '14mm', base: '11px', lineH: 1.35, rowPad: '0.6mm', caseNo: '10.5px', stage: '9px', header: '12px', footer: '9px' }
+      ? { topPad: '14mm', base: '12px', lineH: 1.5, rowPad: '0.8mm', caseNo: '11px', stage: '9px', header: '13px', footer: '9px' }
       : slipCount <= 24
-      ? { topPad: '10mm', base: '9.5px', lineH: 1.25, rowPad: '0.4mm', caseNo: '9px', stage: '8px', header: '11px', footer: '8px' }
-      : { topPad: '8mm', base: '8.5px', lineH: 1.15, rowPad: '0.2mm', caseNo: '8px', stage: '7.5px', header: '10px', footer: '7px' }
+      ? { topPad: '10mm', base: '10.5px', lineH: 1.4, rowPad: '0.5mm', caseNo: '9.5px', stage: '8.5px', header: '11.5px', footer: '8px' }
+      : { topPad: '8mm', base: '9px', lineH: 1.3, rowPad: '0.3mm', caseNo: '8.5px', stage: '8px', header: '10.5px', footer: '7px' }
 
   return (
     <div className="max-w-6xl print:max-w-none">
@@ -1283,18 +1286,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {slipSorted.map((h) => (
                     <li key={h.id} style={{ padding: `${slipTier.rowPad} 0`, borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                         <span style={{ fontFamily: 'monospace', fontSize: slipTier.caseNo, flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
                         <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
                         <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
+                        {h.caseData.case_stage && (
+                          <span style={{ fontSize: slipTier.stage, color: '#888' }}>({stageAbbrev(h.caseData.case_stage)})</span>
+                        )}
                       </div>
-                      {h.caseData.case_stage && (
-                        <div style={{ fontSize: slipTier.stage, color: '#777', fontStyle: 'italic', marginTop: '0.3mm' }}>
-                          {h.caseData.case_stage}
-                        </div>
-                      )}
                     </li>
                   ))}
                 </ul>

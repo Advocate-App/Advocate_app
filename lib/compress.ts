@@ -2,9 +2,10 @@
  * Client-side file compression, run in the browser before a document is
  * uploaded to a case. Two paths:
  *
- *  - Images (jpg/png): re-encoded through <canvas> at a high quality that's
- *    visually identical to the original but meaningfully smaller — the same
- *    idea WhatsApp/Google Photos use for "high quality" uploads. Oversized
+ *  - Images (jpg/png): re-encoded through MozJPEG (the same encoder tools
+ *    like smallpdf/Squoosh use — meaningfully better quality-per-byte than
+ *    the browser's own built-in JPEG encoder) at a high quality that's
+ *    visually identical to the original but meaningfully smaller. Oversized
  *    photos (much higher resolution than any screen or printout needs) are
  *    also downscaled to a sane cap.
  *
@@ -18,19 +19,22 @@
  *         size is almost entirely the embedded photo of each page, and
  *         this pass barely touches that, so it does close to nothing.
  *      2. Every page is rendered to a canvas at a generous 160 DPI and
- *         re-saved as a JPEG, then rebuilt into a fresh PDF. 160 DPI is
- *         well above what's needed to read or print a document clearly —
- *         this is the same technique tools like smallpdf use, and is
- *         where the real size reduction comes from for scans. For a
- *         text-only PDF this version usually comes out bigger, so the
- *         comparison above quietly discards it and keeps the structural
- *         (or original) result instead — text stays selectable/searchable.
+ *         re-encoded through MozJPEG, then rebuilt into a fresh PDF. Using
+ *         a proper encoder instead of the browser's built-in one is what
+ *         actually closes the gap with tools like smallpdf — it gets a
+ *         noticeably smaller file at the *same* visual quality, rather
+ *         than needing to drop resolution/quality further and lose
+ *         legibility to hit a similar size. For a text-only PDF this
+ *         version usually comes out bigger, so the comparison above
+ *         quietly discards it and keeps the structural (or original)
+ *         result instead — text stays selectable/searchable.
  *
  * If compression ever produces a *larger* file than the original, or fails
  * for any reason, the original file is returned untouched.
  */
 import { PDFDocument } from 'pdf-lib'
 import * as pdfjsLib from 'pdfjs-dist'
+import { encode as encodeMozJpeg } from '@jsquash/jpeg'
 
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -49,7 +53,7 @@ export interface CompressResult {
 }
 
 const MAX_IMAGE_DIMENSION = 2400 // px — plenty for reading/printing a document page
-const IMAGE_QUALITY = 0.92 // visually lossless for scanned documents/photos
+const IMAGE_QUALITY = 90 // MozJPEG 0-100 scale — visually lossless for scanned documents/photos
 
 async function compressImageFile(file: File): Promise<File> {
   const bitmap = await createImageBitmap(file)
@@ -64,14 +68,19 @@ async function compressImageFile(file: File): Promise<File> {
   if (!ctx) return file
   ctx.drawImage(bitmap, 0, 0, width, height)
 
-  const outType = file.type === 'image/png' && !fileLooksLikePhoto(bitmap) ? 'image/png' : 'image/jpeg'
-  const blob: Blob | null = await new Promise((resolve) =>
-    canvas.toBlob(resolve, outType, outType === 'image/jpeg' ? IMAGE_QUALITY : undefined)
-  )
-  if (!blob) return file
+  // Small, few-color images are more likely scanned line-art/screenshots
+  // where PNG (lossless) stays smaller than JPEG — otherwise MozJPEG wins
+  // by a wide margin on photo-like content.
+  if (file.type === 'image/png' && !fileLooksLikePhoto(bitmap)) {
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob) return file
+    return new File([blob], file.name, { type: 'image/png', lastModified: Date.now() })
+  }
 
-  const newName = outType === 'image/jpeg' ? file.name.replace(/\.(png|jpe?g)$/i, '.jpg') : file.name
-  return new File([blob], newName, { type: outType, lastModified: Date.now() })
+  const imageData = ctx.getImageData(0, 0, width, height)
+  const jpegBuffer = await encodeMozJpeg(imageData, { quality: IMAGE_QUALITY })
+  const newName = file.name.replace(/\.(png|jpe?g)$/i, '.jpg')
+  return new File([jpegBuffer], newName, { type: 'image/jpeg', lastModified: Date.now() })
 }
 
 // Very small photos with few colors are more likely to be scanned line-art/
@@ -81,14 +90,14 @@ function fileLooksLikePhoto(bitmap: ImageBitmap): boolean {
   return bitmap.width * bitmap.height > 300 * 300
 }
 
-// 160 DPI / 0.82 quality was too conservative — real-world compressors
-// (smallpdf's default tier included) land around 130 DPI / ~70% JPEG
-// quality for a "still completely readable" document scan, and that's
-// where the actual size win is. Phone scans are usually captured at
-// 250-350+ DPI equivalent, so this is a big, legitimate drop in pixel
-// count, not just a quality-slider tweak.
-const PDF_PAGE_TARGET_DPI = 130
-const PDF_PAGE_JPEG_QUALITY = 0.72
+// Dropping resolution to squeeze the file smaller made the actual
+// legibility loss visible — MozJPEG below is what should be doing the
+// heavy lifting on size instead. 160 DPI is comfortably sharp; quality 78
+// (MozJPEG's 0-100 scale) is close to its own default (75) and tuned
+// specifically for MozJPEG's better encoding rather than the browser's
+// built-in encoder, which needed a much lower number for the same size.
+const PDF_PAGE_TARGET_DPI = 160
+const PDF_PAGE_JPEG_QUALITY = 78
 
 async function structuralPdfResave(bytes: ArrayBuffer): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true })
@@ -115,15 +124,15 @@ async function rasterizePdf(bytes: ArrayBuffer): Promise<Uint8Array | null> {
     const canvas = document.createElement('canvas')
     canvas.width = Math.round(viewport.width)
     canvas.height = Math.round(viewport.height)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error(`page ${i}: canvas 2d context unavailable`)
     // Passing `canvas` (not `canvasContext`) is pdf.js's current
     // recommended form — mixing both isn't a supported combination.
     await page.render({ canvas, viewport }).promise
 
-    const blob: Blob | null = await new Promise((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', PDF_PAGE_JPEG_QUALITY)
-    )
-    if (!blob) throw new Error(`page ${i}: canvas.toBlob returned null`)
-    const jpgBytes = new Uint8Array(await blob.arrayBuffer())
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const jpegBuffer = await encodeMozJpeg(imageData, { quality: PDF_PAGE_JPEG_QUALITY })
+    const jpgBytes = new Uint8Array(jpegBuffer)
 
     const img = await out.embedJpg(jpgBytes)
     // Physical page size (in points) stays true to the original, at 72dpi —
