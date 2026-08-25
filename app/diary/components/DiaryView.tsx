@@ -301,11 +301,19 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const supabase = createClient()
       const dateStr = toYMD(selectedDate)
 
+      // Tiebreak on id after created_at — a lot of hearing rows from the
+      // bulk case import share the exact same created_at timestamp, and
+      // without a fully unique secondary key Postgres doesn't promise the
+      // same order on every fetch, which looked like cases randomly
+      // swapping places. id is unique, so this order is now permanent —
+      // and any newly-added hearing for this date always has a later id,
+      // so it naturally lands at the bottom of its court's group.
       const { data: hearingRows, error: hErr } = await supabase
         .from('hearings')
         .select('*')
         .eq('hearing_date', dateStr)
         .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
 
       if (hErr || !hearingRows || hearingRows.length === 0) {
         setHearings([])
