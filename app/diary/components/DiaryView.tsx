@@ -19,7 +19,9 @@ import {
   eachDayOfInterval,
   setMonth,
   setYear,
-  getDaysInMonth,
+  addMonths,
+  subMonths,
+  getDay,
 } from 'date-fns'
 import {
   getCourtLabel,
@@ -235,8 +237,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   })
   const [addSaving, setAddSaving] = useState(false)
 
-  const [showMonthPicker, setShowMonthPicker] = useState(false)
-  const [showYearPicker, setShowYearPicker] = useState(false)
+  // Full "jump to any date" calendar — opened by tapping the month or year.
+  // pickerViewDate is the month currently browsed inside the picker; it's
+  // separate from selectedDate so browsing around doesn't change what's
+  // loaded until a day is actually clicked.
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false)
+  const [pickerViewDate, setPickerViewDate] = useState<Date>(new Date())
   const [diaryFilter, setDiaryFilter] = useState('')
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -385,15 +391,20 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates() }
   }, [visibleAdvocateIds, fetchHearings, fetchMonthDates])
 
+  // push (not replace) — each date you visit becomes a real back-button
+  // stop. replace() was overwriting the same history entry every time,
+  // so pressing back from anywhere in the diary skipped past every date
+  // you'd browsed and landed wherever you were before you opened it —
+  // that's the "back sometimes takes me to the main page" issue.
   function goDay(offset: number) {
     const newDate = offset > 0 ? addDays(selectedDate, offset) : subDays(selectedDate, Math.abs(offset))
     setSelectedDate(newDate)
-    router.replace(`/diary/date/${toYMD(newDate)}`, { scroll: false })
+    router.push(`/diary/date/${toYMD(newDate)}`, { scroll: false })
   }
 
   function goToDate(d: Date) {
     setSelectedDate(d)
-    router.replace(`/diary/date/${toYMD(d)}`, { scroll: false })
+    router.push(`/diary/date/${toYMD(d)}`, { scroll: false })
   }
 
   async function saveStage(hearingId: string, newStage: string) {
@@ -609,10 +620,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           {/* Month */}
           <div className="relative flex flex-col items-center justify-center py-4 px-3 bg-gray-50">
             <button
-              onClick={() => { setShowMonthPicker(v => !v); setShowYearPicker(false) }}
+              onClick={() => { setPickerViewDate(selectedDate); setShowCalendarPicker(true) }}
               className="text-2xl font-bold tracking-widest text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
               style={{ fontFamily: 'Georgia, serif' }}
-              title="Click to change month"
+              title="Click to jump to any date"
             >
               {monthName}
             </button>
@@ -620,31 +631,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               <span className="mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 uppercase tracking-wide">
                 Today
               </span>
-            )}
-            {showMonthPicker && (
-              <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 w-48">
-                {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => (
-                  <button
-                    key={m}
-                    onClick={() => {
-                      const capped = Math.min(selectedDate.getDate(), getDaysInMonth(setMonth(selectedDate, i)))
-                      const d = new Date(selectedDate)
-                      d.setMonth(i)
-                      d.setDate(capped)
-                      setSelectedDate(d)
-                      setShowMonthPicker(false)
-                    }}
-                    className={`text-xs py-1.5 rounded-lg font-medium transition-colors ${
-                      selectedDate.getMonth() === i
-                        ? 'text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                    style={selectedDate.getMonth() === i ? { background: '#1e3a5f' } : undefined}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
             )}
           </div>
 
@@ -672,35 +658,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           {/* Year */}
           <div className="relative flex flex-col items-center justify-center py-4 px-5 bg-gray-50">
             <button
-              onClick={() => { setShowYearPicker(v => !v); setShowMonthPicker(false) }}
+              onClick={() => { setPickerViewDate(selectedDate); setShowCalendarPicker(true) }}
               className="text-2xl font-bold text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
               style={{ fontFamily: 'Georgia, serif' }}
-              title="Click to change year"
+              title="Click to jump to any date"
             >
               {yearNum}
             </button>
-            {showYearPicker && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 z-50 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-3 gap-1 w-44">
-                {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 3 + i).map(y => (
-                  <button
-                    key={y}
-                    onClick={() => {
-                      const d = setYear(selectedDate, y)
-                      setSelectedDate(d)
-                      setShowYearPicker(false)
-                    }}
-                    className={`text-xs py-1.5 rounded-lg font-medium transition-colors ${
-                      selectedDate.getFullYear() === y
-                        ? 'text-white'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                    style={selectedDate.getFullYear() === y ? { background: '#1e3a5f' } : undefined}
-                  >
-                    {y}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* To-Do list */}
@@ -710,6 +674,103 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           </div>
         </div>
       </div>
+
+      {/* ═══ Jump to any date ═══ */}
+      {showCalendarPicker && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 print:hidden"
+          onClick={() => setShowCalendarPicker(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-4 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <button
+                onClick={() => setPickerViewDate((d) => subMonths(d, 1))}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                title="Previous month"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={pickerViewDate.getMonth()}
+                  onChange={(e) => setPickerViewDate((d) => setMonth(d, Number(e.target.value)))}
+                  className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+                >
+                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (
+                    <option key={m} value={i}>{m}</option>
+                  ))}
+                </select>
+                <select
+                  value={pickerViewDate.getFullYear()}
+                  onChange={(e) => setPickerViewDate((d) => setYear(d, Number(e.target.value)))}
+                  className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+                >
+                  {Array.from({ length: 36 }, (_, i) => new Date().getFullYear() - 30 + i).map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => setPickerViewDate((d) => addMonths(d, 1))}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                title="Next month"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <div key={i} className="text-center text-[10px] font-semibold text-gray-400 uppercase">{d}</div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {(() => {
+                const monthStart = startOfMonth(pickerViewDate)
+                const monthEnd = endOfMonth(pickerViewDate)
+                const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+                const leadingBlanks = getDay(monthStart) // 0 = Sunday
+                return (
+                  <>
+                    {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`blank-${i}`} />)}
+                    {days.map((day) => {
+                      const isSelected = toYMD(day) === toYMD(selectedDate)
+                      const isT = isToday(day)
+                      return (
+                        <button
+                          key={day.toISOString()}
+                          onClick={() => { goToDate(day); setShowCalendarPicker(false) }}
+                          className={`aspect-square rounded-lg text-sm font-medium transition-colors ${
+                            isSelected
+                              ? 'text-white'
+                              : isT
+                              ? 'bg-amber-50 text-amber-700 font-semibold'
+                              : 'text-gray-700 hover:bg-gray-100'
+                          }`}
+                          style={isSelected ? { background: '#1e3a5f' } : {}}
+                        >
+                          {format(day, 'd')}
+                        </button>
+                      )
+                    })}
+                  </>
+                )
+              })()}
+            </div>
+
+            <button
+              onClick={() => { goToDate(new Date()); setShowCalendarPicker(false) }}
+              className="w-full mt-3 py-2 rounded-lg text-sm font-medium text-center border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors"
+            >
+              Jump to Today
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Month Calendar Strip ═══ */}
       <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 overflow-x-auto print:hidden">
