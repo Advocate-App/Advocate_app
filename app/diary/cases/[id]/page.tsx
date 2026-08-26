@@ -426,8 +426,13 @@ export default function CaseDetailPage() {
       setCaseData({ ...caseData, case_stage: hearingForm.stage_on_date })
     }
 
-    // Auto-create next hearing if next date is provided (so it shows in diary)
-    if (hearingForm.next_hearing_date && !editingHearingId) {
+    // Auto-create next hearing if next date is provided (so it shows in
+    // diary) — this needs to run on edit too, not just when adding a brand
+    // new hearing. It used to be skipped whenever editingHearingId was
+    // set, which meant setting/changing the next date on an existing
+    // hearing saved the text but never actually scheduled it as a real
+    // hearing, so it silently never showed up in the diary on that day.
+    if (hearingForm.next_hearing_date) {
       const { data: existing } = await supabase
         .from('hearings')
         .select('id')

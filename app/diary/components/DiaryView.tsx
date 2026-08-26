@@ -456,27 +456,45 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     loadAdvocate()
   }, [])
 
+  // Case IDs for this advocate (or, for a junior, both senior advocates'
+  // combined) — fetched once per advocate, not on every single calendar
+  // open. Re-querying every one of ~1000+ cases each time any date picker
+  // opened was the main reason it started feeling slow.
+  const [cachedCaseIds, setCachedCaseIds] = useState<string[] | null>(null)
+  const fetchedMonthsRef = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) { setCachedCaseIds(null); return }
+    setCachedCaseIds(null)
+    fetchedMonthsRef.current = new Set()
+    const supabase = createClient()
+    fetchAllRows<{ id: string }>((from, to) =>
+      supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
+    ).then((rows) => setCachedCaseIds(rows.map((r) => r.id)))
+      .catch((err) => console.error('case id cache error:', err))
+  }, [visibleAdvocateIds])
+
   // Fetch hearing counts for a given month — this advocate's hearings (or,
   // for a junior, both senior advocates' combined). Takes the month to
   // fetch explicitly so both the month strip (selectedDate's month) and
   // the "jump to any date" calendar (whatever month it's browsing, which
   // can be a different one) can each pull counts for their own month.
-  const fetchMonthDates = useCallback(async (monthDate: Date) => {
-    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) return
+  // Skips the network round-trip entirely if that month's already been
+  // fetched — pass force to refetch anyway (e.g. right after adding a
+  // hearing, when the cached count for that month is now stale).
+  const fetchMonthDates = useCallback(async (monthDate: Date, force = false) => {
+    if (!cachedCaseIds || cachedCaseIds.length === 0) return
+    const monthKey = format(monthDate, 'yyyy-MM')
+    if (!force && fetchedMonthsRef.current.has(monthKey)) return
     try {
       const supabase = createClient()
       const start = toYMD(startOfMonth(monthDate))
       const end = toYMD(endOfMonth(monthDate))
-      const myCases = await fetchAllRows<{ id: string }>((from, to) =>
-        supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
-      )
-      if (myCases.length === 0) return
-      const myCaseIds = myCases.map((c) => c.id)
       // PostgREST URL limit — batch if needed
       const BATCH = 200
       const counts = new Map<string, number>()
-      for (let i = 0; i < myCaseIds.length; i += BATCH) {
-        const batch = myCaseIds.slice(i, i + BATCH)
+      for (let i = 0; i < cachedCaseIds.length; i += BATCH) {
+        const batch = cachedCaseIds.slice(i, i + BATCH)
         const { data } = await supabase
           .from('hearings')
           .select('hearing_date')
@@ -485,6 +503,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           .lte('hearing_date', end)
         if (data) data.forEach((h: { hearing_date: string }) => counts.set(h.hearing_date, (counts.get(h.hearing_date) || 0) + 1))
       }
+      fetchedMonthsRef.current.add(monthKey)
       // Merge into the existing map (keyed by date) rather than replace it
       // wholesale — the month strip and the calendar picker can have two
       // different months' worth of counts loaded at the same time.
@@ -499,7 +518,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     } catch (err) {
       console.error('fetchMonthDates error:', err)
     }
-  }, [visibleAdvocateIds])
+  }, [cachedCaseIds])
 
   // Fetch hearings for selected date
   const fetchHearings = useCallback(async () => {
@@ -694,7 +713,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setAddSaving(false)
     resetAddModal()
     fetchHearings()
-    fetchMonthDates(selectedDate)
+    fetchMonthDates(selectedDate, true) // force — this month's count just changed
   }
 
   function resetAddModal() {

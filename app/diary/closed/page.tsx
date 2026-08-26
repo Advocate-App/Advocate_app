@@ -18,6 +18,11 @@ interface ClosedHearing {
   case_year: number | null
   party_plaintiff: string
   party_defendant: string
+  // Every hearing on this case that also has a final stage — a case can
+  // legitimately have more than one (re-disposed, duplicate entries from
+  // the original import, etc.). Marking an action updates all of them, so
+  // the case doesn't stay half-tagged and reappear as "still pending".
+  allHearingIds: string[]
 }
 
 const FINAL_STAGES = ['Disposed', 'For Orders', 'Judgment', 'Judgment Reserved']
@@ -72,7 +77,8 @@ export default function ClosedCasesPage() {
 
     // batch fetch hearings with final stages
     const BATCH = 200
-    const allHearings: ClosedHearing[] = []
+    type RawHearing = { id: string; hearing_date: string; stage_on_date: string; outcome_notes: string | null; case_id: string }
+    const rawHearings: RawHearing[] = []
     for (let i = 0; i < caseIds.length; i += BATCH) {
       const batch = caseIds.slice(i, i + BATCH)
       const { data: hs } = await supabase
@@ -82,13 +88,30 @@ export default function ClosedCasesPage() {
         .in('stage_on_date', FINAL_STAGES)
         .order('hearing_date', { ascending: false })
 
-      if (hs) {
-        for (const h of hs) {
-          const c = caseMap.get(h.case_id)
-          if (c) allHearings.push({ ...h, ...c, case_id: h.case_id })
-        }
-      }
+      if (hs) rawHearings.push(...(hs as RawHearing[]))
     }
+
+    // A case can have more than one hearing row with a final stage (a
+    // re-disposed matter, duplicate entries from the original import,
+    // etc.) — dedupe to one row per case, otherwise it shows up twice and
+    // marking an action on one instance leaves the other stuck showing as
+    // pending. Prefer a hearing that's already tagged with an action so
+    // existing status keeps showing correctly; otherwise the latest one.
+    const byCase = new Map<string, RawHearing[]>()
+    for (const h of rawHearings) {
+      const arr = byCase.get(h.case_id) || []
+      arr.push(h)
+      byCase.set(h.case_id, arr)
+    }
+    const allHearings: ClosedHearing[] = []
+    for (const [caseId, hs] of byCase) {
+      const c = caseMap.get(caseId)
+      if (!c) continue
+      const tagged = hs.find((h) => h.outcome_notes)
+      const rep = tagged || [...hs].sort((a, b) => b.hearing_date.localeCompare(a.hearing_date))[0]
+      allHearings.push({ ...c, ...rep, allHearingIds: hs.map((h) => h.id) })
+    }
+    allHearings.sort((a, b) => b.hearing_date.localeCompare(a.hearing_date))
 
     setHearings(allHearings)
     setLoading(false)
@@ -107,11 +130,14 @@ export default function ClosedCasesPage() {
     init()
   }, [load])
 
-  async function setAction(hearingId: string, action: string) {
-    setSaving(hearingId)
+  async function setAction(caseRowId: string, allHearingIds: string[], action: string) {
+    setSaving(caseRowId)
     const supabase = createClient()
-    await supabase.from('hearings').update({ outcome_notes: action }).eq('id', hearingId)
-    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, outcome_notes: action } : h))
+    // Every final-stage hearing on this case gets the same tag — not just
+    // the one shown — so no duplicate instance is left behind still
+    // looking "pending" after this one's been marked.
+    await supabase.from('hearings').update({ outcome_notes: action || null }).in('id', allHearingIds)
+    setHearings(prev => prev.map(h => h.id === caseRowId ? { ...h, outcome_notes: action || null } : h))
     setSaving(null)
   }
 
@@ -191,7 +217,7 @@ export default function ClosedCasesPage() {
                           <div className="flex items-center gap-1">
                             <span className={`text-xs font-medium ${sec.color}`}>{h.outcome_notes}</span>
                             <button
-                              onClick={() => setAction(h.id, '')}
+                              onClick={() => setAction(h.id, h.allHearingIds, '')}
                               className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
                             >Clear</button>
                           </div>
@@ -202,7 +228,7 @@ export default function ClosedCasesPage() {
                             ) : QUICK_ACTIONS.map(action => (
                               <button
                                 key={action}
-                                onClick={() => setAction(h.id, action)}
+                                onClick={() => setAction(h.id, h.allHearingIds, action)}
                                 className="text-xs px-2.5 py-1 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap"
                               >
                                 {action}
