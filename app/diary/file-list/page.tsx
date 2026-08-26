@@ -232,22 +232,42 @@ export default function FileListPage() {
       .map((name) => ({ name, rows: map[name] }))
   }
 
-  // One flat list of city headings + bucket cards, in city order, all as
-  // direct children of the same grid/columns container — that's what lets
-  // print pack a small city's cards right after the previous city's
-  // instead of starting fresh.
-  const printCards: ReactNode[] = []
+  // Pack every card into 3 columns ourselves (a "who goes where" plan we
+  // compute up front) instead of leaving it to CSS grid/columns — those
+  // both paginate badly in Chrome's print/PDF export: grid locks a whole
+  // row to its tallest card (wasting the space under shorter neighbours),
+  // and CSS `columns` can push its *entire* block to a fresh page rather
+  // than filling out what's left of the current one. Plain stacked cards
+  // inside 3 flex columns paginate the way you'd expect: nothing splits
+  // mid-card, and nothing jumps to a new page while there's still room.
+  // Cards are handed out to whichever column is lightest so far (weighed
+  // by roughly how many lines they'll print), keeping the 3 columns close
+  // to the same height.
+  function cardWeight(rows: CaseRow[]): number {
+    const dateCount = new Set(rows.map((r) => r.hearing_date)).size
+    return rows.length + dateCount + 2 // +2 for the card's own header chrome
+  }
+
+  const columns: { weight: number; nodes: ReactNode[] }[] = [
+    { weight: 0, nodes: [] }, { weight: 0, nodes: [] }, { weight: 0, nodes: [] },
+  ]
   for (const city of cityNames) {
-    if (multiCity) {
-      printCards.push(
-        <div key={`city-${city}`} className="col-span-full text-sm font-bold mt-3 mb-1 first:mt-0 print:text-xs print:mt-0 print:mb-1.5 print:break-after-avoid" style={{ color: '#1e3a5f' }}>
-          {city}
-        </div>
-      )
-    }
+    let cityHeading: ReactNode = multiCity ? (
+      <div key={`city-${city}`} className="text-sm font-bold mt-3 mb-1 first:mt-0 print:text-xs print:mt-0 print:mb-1.5 print:break-after-avoid" style={{ color: '#1e3a5f' }}>
+        {city}
+      </div>
+    ) : null
     for (const { name, rows } of bucketsFor(byCity[city])) {
-      printCards.push(
-        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border print:mb-[3mm] print:break-inside-avoid">
+      let lightest = 0
+      for (let i = 1; i < columns.length; i++) {
+        if (columns[i].weight < columns[lightest].weight) lightest = i
+      }
+      columns[lightest].weight += cardWeight(rows)
+      // The city heading rides along with whichever column ends up with
+      // that city's first card, so it's never stranded on its own.
+      if (cityHeading) { columns[lightest].nodes.push(cityHeading); cityHeading = null }
+      columns[lightest].nodes.push(
+        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start mb-4 print:mb-[3mm] print:rounded-md print:border print:break-inside-avoid">
           <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
             <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
             <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
@@ -262,8 +282,10 @@ export default function FileListPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div>
+      {/* Header — hidden when printing, there's a dedicated print-only
+          heading further down so the title doesn't print twice and waste
+          a chunk of the first page. */}
+      <div className="print:hidden">
         <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>
           File Pull List
         </h1>
@@ -330,14 +352,17 @@ export default function FileListPage() {
                 </div>
               </div>
 
-              {/* One flowing grid/columns for everything — a bucket card like
-                  Private MACT never splits mid-list (break-inside-avoid), so
-                  it always reads as one clean block. But there's no forced
-                  page break between cities either, so a city with only a
-                  couple of files just shares the page with the next city's
-                  cards instead of wasting a whole sheet on it. */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
-                {printCards}
+              {/* 3 pre-balanced columns (computed above) instead of a CSS
+                  grid or CSS columns — see the comment on `columns` above
+                  for why. Each column just stacks its cards top to bottom,
+                  which prints cleanly with no mid-card splits and no
+                  wasted gaps. */}
+              <div className="flex flex-col md:flex-row print:flex-row gap-4 print:gap-[5mm] items-start">
+                {columns.map((col, i) => (
+                  <div key={i} className="flex-1 min-w-0 w-full">
+                    {col.nodes}
+                  </div>
+                ))}
               </div>
 
               {/* Summary */}
