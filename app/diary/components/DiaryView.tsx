@@ -701,19 +701,33 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   async function addHearing(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedCase || !newHearingForm.hearing_date) return
+    if (!selectedCase || !newHearingForm.hearing_date || addSaving) return
     setAddSaving(true)
     const supabase = createClient()
-    await supabase.from('hearings').insert({
-      case_id: selectedCase.id,
-      hearing_date: newHearingForm.hearing_date,
-      stage_on_date: newHearingForm.stage_on_date || null,
-      next_hearing_date: newHearingForm.next_hearing_date || null,
-      purpose: newHearingForm.purpose || null,
-      appearing_advocate_name: newHearingForm.appearing_advocate_name || 'self',
-      outcome_notes: newHearingForm.notes || null,
-      happened: false,
-    })
+
+    // Guard against duplicates — a double-tap/double-Enter, or the date
+    // already existing on this case (e.g. auto-created earlier from a
+    // "next date"), used to silently create two rows for the same
+    // case+date, which then showed the case twice in the diary.
+    const { data: alreadyThere } = await supabase
+      .from('hearings')
+      .select('id')
+      .eq('case_id', selectedCase.id)
+      .eq('hearing_date', newHearingForm.hearing_date)
+      .limit(1)
+
+    if (!alreadyThere || alreadyThere.length === 0) {
+      await supabase.from('hearings').insert({
+        case_id: selectedCase.id,
+        hearing_date: newHearingForm.hearing_date,
+        stage_on_date: newHearingForm.stage_on_date || null,
+        next_hearing_date: newHearingForm.next_hearing_date || null,
+        purpose: newHearingForm.purpose || null,
+        appearing_advocate_name: newHearingForm.appearing_advocate_name || 'self',
+        outcome_notes: newHearingForm.notes || null,
+        happened: false,
+      })
+    }
     if (newHearingForm.next_hearing_date) {
       const { data: existing } = await supabase
         .from('hearings').select('id').eq('case_id', selectedCase.id).eq('hearing_date', newHearingForm.next_hearing_date).limit(1)
