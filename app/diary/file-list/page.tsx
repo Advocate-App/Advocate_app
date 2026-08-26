@@ -111,16 +111,21 @@ function BucketList({ cases }: { cases: CaseRow[] }) {
   }
   const dates = Object.keys(byDate).sort()
 
+  // Plain mb-* margins here, not space-y-* — Tailwind's space-y utility
+  // uses margin-block (a logical property tied to :not(:last-child)) and
+  // that combination is what was making Chrome's print/PDF export defer
+  // an entire card to the next page instead of starting it where it
+  // actually fit.
   return (
-    <div className="space-y-3 print:space-y-1.5">
+    <div>
       {dates.map((date) => (
-        <div key={date}>
-          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1 print:break-after-avoid">
+        <div key={date} className="mb-3 print:mb-1.5 last:mb-0">
+          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[11px] print:mb-1 print:break-after-avoid">
             {fmtDate(date)}
           </div>
-          <ol className="space-y-1 print:space-y-0.5">
+          <ol>
             {byDate[date].map((c) => (
-              <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight print:break-inside-avoid">
+              <li key={c.id} className="text-sm text-gray-800 leading-5 mb-1 print:text-[11px] print:leading-snug print:mb-0.5 print:break-inside-avoid">
                 {c.case_number && (
                   <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
                 )}
@@ -232,45 +237,29 @@ export default function FileListPage() {
       .map((name) => ({ name, rows: map[name] }))
   }
 
-  // Pack every card into 3 columns ourselves (a "who goes where" plan we
-  // compute up front) instead of leaving it to CSS grid/columns — those
-  // both paginate badly in Chrome's print/PDF export: grid locks a whole
-  // row to its tallest card (wasting the space under shorter neighbours),
-  // and CSS `columns` can push its *entire* block to a fresh page rather
-  // than filling out what's left of the current one. Plain stacked cards
-  // inside 3 flex columns paginate the way you'd expect: nothing splits
-  // mid-card, and nothing jumps to a new page while there's still room.
-  // Cards are handed out to whichever column is lightest so far (weighed
-  // by roughly how many lines they'll print), keeping the 3 columns close
-  // to the same height.
-  function cardWeight(rows: CaseRow[]): number {
-    const dateCount = new Set(rows.map((r) => r.hearing_date)).size
-    return rows.length + dateCount + 2 // +2 for the card's own header chrome
-  }
-
-  const columns: { weight: number; nodes: ReactNode[] }[] = [
-    { weight: 0, nodes: [] }, { weight: 0, nodes: [] }, { weight: 0, nodes: [] },
-  ]
+  // Straight 3-column newspaper flow: pour every card in one after another,
+  // in city then bucket order. A big bucket like Private just fills out
+  // whatever's left of column 1, then carries straight on at the top of
+  // column 2 — no separate "part 2" cards, nothing held back to a whole
+  // fresh page while there's still room going in this one. Individual
+  // case lines and card headers still won't split mid-line (the
+  // break-inside/after-avoid below); only the space between cards is
+  // free to fall wherever it lands.
+  const allCards: ReactNode[] = []
   for (const city of cityNames) {
-    let cityHeading: ReactNode = multiCity ? (
-      <div key={`city-${city}`} className="text-sm font-bold mt-3 mb-1 first:mt-0 print:text-xs print:mt-0 print:mb-1.5 print:break-after-avoid" style={{ color: '#1e3a5f' }}>
-        {city}
-      </div>
-    ) : null
+    if (multiCity) {
+      allCards.push(
+        <div key={`city-${city}`} className="text-sm font-bold mt-3 mb-1 first:mt-0 print:text-[13px] print:mt-0 print:mb-1.5 print:break-after-avoid" style={{ color: '#1e3a5f' }}>
+          {city}
+        </div>
+      )
+    }
     for (const { name, rows } of bucketsFor(byCity[city])) {
-      let lightest = 0
-      for (let i = 1; i < columns.length; i++) {
-        if (columns[i].weight < columns[lightest].weight) lightest = i
-      }
-      columns[lightest].weight += cardWeight(rows)
-      // The city heading rides along with whichever column ends up with
-      // that city's first card, so it's never stranded on its own.
-      if (cityHeading) { columns[lightest].nodes.push(cityHeading); cityHeading = null }
-      columns[lightest].nodes.push(
-        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start mb-4 print:mb-[3mm] print:rounded-md print:border print:break-inside-avoid">
+      allCards.push(
+        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-4 print:mb-[3mm] print:rounded-md print:border">
           <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
-            <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
-            <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
+            <span className="text-sm font-bold text-white uppercase tracking-widest print:text-[13px]">{name}</span>
+            <span className="text-xs text-blue-200 print:text-[11px]">({rows.length})</span>
           </div>
           <div className="p-4 print:p-2">
             <BucketList cases={rows} />
@@ -281,11 +270,11 @@ export default function FileListPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto">
       {/* Header — hidden when printing, there's a dedicated print-only
           heading further down so the title doesn't print twice and waste
           a chunk of the first page. */}
-      <div className="print:hidden">
+      <div className="print:hidden mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>
           File Pull List
         </h1>
@@ -293,7 +282,7 @@ export default function FileListPage() {
       </div>
 
       {/* Date picker */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-end gap-4 print:hidden">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-end gap-4 print:hidden mb-6">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">From Date</label>
           <input
@@ -342,31 +331,26 @@ export default function FileListPage() {
               No hearings found for selected dates
             </div>
           ) : (
-            <div className="space-y-4 print:space-y-3">
+            <div>
 
               {/* Print header */}
-              <div className="hidden print:block text-center mb-4">
+              <div className="hidden print:block text-center mb-4 print:mb-3">
                 <div className="font-bold text-base">File Pull List</div>
                 <div className="text-xs text-gray-600">
                   {fromDate === toDate ? fmtDate(fromDate) : `${fmtDate(fromDate)} – ${fmtDate(toDate)}`}
                 </div>
               </div>
 
-              {/* 3 pre-balanced columns (computed above) instead of a CSS
-                  grid or CSS columns — see the comment on `columns` above
-                  for why. Each column just stacks its cards top to bottom,
-                  which prints cleanly with no mid-card splits and no
-                  wasted gaps. */}
-              <div className="flex flex-col md:flex-row print:flex-row gap-4 print:gap-[5mm] items-start">
-                {columns.map((col, i) => (
-                  <div key={i} className="flex-1 min-w-0 w-full">
-                    {col.nodes}
-                  </div>
-                ))}
+              {/* True 3-column flow for print — content pours from column 1
+                  into column 2 into column 3 like a newspaper, so a big
+                  bucket just continues where it left off instead of being
+                  held back as one sealed box. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
+                {allCards}
               </div>
 
               {/* Summary */}
-              <div className="text-xs text-gray-400 text-right print:hidden">
+              <div className="text-xs text-gray-400 text-right mt-4 print:hidden">
                 Total: {cases.length} files across {fromDate === toDate ? '1 day' : `${fromDate} to ${toDate}`}
               </div>
             </div>
