@@ -167,6 +167,169 @@ function toYMD(d: Date): string {
   return format(d, 'yyyy-MM-dd')
 }
 
+// A real, controllable calendar to replace the browser's native <input
+// type="date"> popup wherever picking a date benefits from seeing hearing
+// counts — the native picker is OS-rendered and can't be decorated with
+// anything at all. Used both for the header's "jump to any date" and for
+// setting a hearing's next date inline.
+function CalendarPickerModal({
+  initialDate,
+  selectedDate,
+  hearingCounts,
+  onMonthChange,
+  onSelect,
+  onClear,
+  onClose,
+  todayLabel = 'Jump to Today',
+}: {
+  initialDate: Date
+  selectedDate: Date | null
+  hearingCounts: Map<string, number>
+  onMonthChange: (month: Date) => void
+  onSelect: (d: Date) => void
+  onClear?: () => void
+  onClose: () => void
+  todayLabel?: string
+}) {
+  const [viewDate, setViewDate] = useState<Date>(initialDate)
+  const viewKey = `${viewDate.getFullYear()}-${viewDate.getMonth()}`
+
+  useEffect(() => {
+    onMonthChange(viewDate)
+    // Deliberately keyed on the month/year only, not the callback or the
+    // Date object's identity — re-fetching on every render would defeat
+    // the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey])
+
+  const monthStart = startOfMonth(viewDate)
+  const monthEnd = endOfMonth(viewDate)
+  const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+  const leadingBlanks = getDay(monthStart) // 0 = Sunday
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 print:hidden"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl p-4 w-full max-w-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            onClick={() => setViewDate((d) => subMonths(d, 1))}
+            className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            title="Previous month"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={viewDate.getMonth()}
+              onChange={(e) => setViewDate((d) => setMonth(d, Number(e.target.value)))}
+              className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+            >
+              {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (
+                <option key={m} value={i}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={viewDate.getFullYear()}
+              onChange={(e) => setViewDate((d) => setYear(d, Number(e.target.value)))}
+              className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
+            >
+              {Array.from({ length: 36 }, (_, i) => new Date().getFullYear() - 30 + i).map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setViewDate((d) => addMonths(d, 1))}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+              title="Next month"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+            <div key={i} className="text-center text-[10px] font-semibold text-gray-400 uppercase">{d}</div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`blank-${i}`} />)}
+          {days.map((day) => {
+            const ymd = toYMD(day)
+            const count = hearingCounts.get(ymd) || 0
+            const isSelected = !!selectedDate && ymd === toYMD(selectedDate)
+            const isT = isToday(day)
+            const badgeClass =
+              count === 0 ? '' :
+              count <= 2 ? 'bg-emerald-100 text-emerald-700' :
+              count <= 5 ? 'bg-amber-100 text-amber-700' :
+              'bg-red-100 text-red-700'
+            return (
+              <button
+                key={day.toISOString()}
+                onClick={() => onSelect(day)}
+                title={count > 0 ? `${format(day, 'd MMM')} — ${count} hearing${count !== 1 ? 's' : ''}` : format(day, 'd MMM')}
+                className={`aspect-square rounded-lg text-sm font-medium transition-colors flex flex-col items-center justify-center gap-0.5 ${
+                  isSelected
+                    ? 'text-white'
+                    : isT
+                    ? 'bg-amber-50 text-amber-700 font-semibold'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+                style={isSelected ? { background: '#1e3a5f' } : {}}
+              >
+                <span>{format(day, 'd')}</span>
+                {count > 0 && (
+                  <span
+                    className={`min-w-[15px] px-1 rounded-full text-[9px] font-bold leading-[13px] ${
+                      isSelected ? 'bg-white text-[#1e3a5f]' : badgeClass
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="flex gap-2 mt-3">
+          {onClear && (
+            <button
+              onClick={onClear}
+              className="flex-1 py-2 rounded-lg text-sm font-medium text-center border border-gray-200 hover:bg-gray-50 text-red-600 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            onClick={() => onSelect(new Date())}
+            className="flex-1 py-2 rounded-lg text-sm font-medium text-center border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors"
+          >
+            {todayLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function slipShortName(name: string): string {
   const n = name.trim()
   const bracketMatch = n.match(/^(.+?)\s*\((.+)\)\s*$/)
@@ -238,11 +401,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [addSaving, setAddSaving] = useState(false)
 
   // Full "jump to any date" calendar — opened by tapping the month or year.
-  // pickerViewDate is the month currently browsed inside the picker; it's
-  // separate from selectedDate so browsing around doesn't change what's
-  // loaded until a day is actually clicked.
   const [showCalendarPicker, setShowCalendarPicker] = useState(false)
-  const [pickerViewDate, setPickerViewDate] = useState<Date>(new Date())
   const [diaryFilter, setDiaryFilter] = useState('')
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -403,12 +562,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   useEffect(() => {
     if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates(selectedDate) }
   }, [visibleAdvocateIds, selectedDate, fetchHearings, fetchMonthDates])
-
-  // Calendar picker can browse a different month than the selected date —
-  // fetch counts for whatever month it's currently showing.
-  useEffect(() => {
-    if (showCalendarPicker) fetchMonthDates(pickerViewDate)
-  }, [showCalendarPicker, pickerViewDate, fetchMonthDates])
 
   // push (not replace) — each date you visit becomes a real back-button
   // stop. replace() was overwriting the same history entry every time,
@@ -632,7 +785,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           {/* Month */}
           <div className="relative flex flex-col items-center justify-center py-4 px-3 bg-gray-50">
             <button
-              onClick={() => { setPickerViewDate(selectedDate); setShowCalendarPicker(true) }}
+              onClick={() => setShowCalendarPicker(true)}
               className="text-2xl font-bold tracking-widest text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
               style={{ fontFamily: 'Georgia, serif' }}
               title="Click to jump to any date"
@@ -670,7 +823,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           {/* Year */}
           <div className="relative flex flex-col items-center justify-center py-4 px-5 bg-gray-50">
             <button
-              onClick={() => { setPickerViewDate(selectedDate); setShowCalendarPicker(true) }}
+              onClick={() => setShowCalendarPicker(true)}
               className="text-2xl font-bold text-gray-800 hover:text-blue-700 transition-colors cursor-pointer"
               style={{ fontFamily: 'Georgia, serif' }}
               title="Click to jump to any date"
@@ -689,117 +842,35 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
       {/* ═══ Jump to any date ═══ */}
       {showCalendarPicker && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 print:hidden"
-          onClick={() => setShowCalendarPicker(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-xl p-4 w-full max-w-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <button
-                onClick={() => setPickerViewDate((d) => subMonths(d, 1))}
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-                title="Previous month"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-2">
-                <select
-                  value={pickerViewDate.getMonth()}
-                  onChange={(e) => setPickerViewDate((d) => setMonth(d, Number(e.target.value)))}
-                  className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
-                >
-                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (
-                    <option key={m} value={i}>{m}</option>
-                  ))}
-                </select>
-                <select
-                  value={pickerViewDate.getFullYear()}
-                  onChange={(e) => setPickerViewDate((d) => setYear(d, Number(e.target.value)))}
-                  className="text-sm font-semibold border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800"
-                >
-                  {Array.from({ length: 36 }, (_, i) => new Date().getFullYear() - 30 + i).map((y) => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={() => setPickerViewDate((d) => addMonths(d, 1))}
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-                title="Next month"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                <div key={i} className="text-center text-[10px] font-semibold text-gray-400 uppercase">{d}</div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-1">
-              {(() => {
-                const monthStart = startOfMonth(pickerViewDate)
-                const monthEnd = endOfMonth(pickerViewDate)
-                const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
-                const leadingBlanks = getDay(monthStart) // 0 = Sunday
-                return (
-                  <>
-                    {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`blank-${i}`} />)}
-                    {days.map((day) => {
-                      const ymd = toYMD(day)
-                      const count = monthHearingCounts.get(ymd) || 0
-                      const isSelected = ymd === toYMD(selectedDate)
-                      const isT = isToday(day)
-                      const badgeClass =
-                        count === 0 ? '' :
-                        count <= 2 ? 'bg-emerald-100 text-emerald-700' :
-                        count <= 5 ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
-                      return (
-                        <button
-                          key={day.toISOString()}
-                          onClick={() => { goToDate(day); setShowCalendarPicker(false) }}
-                          title={count > 0 ? `${format(day, 'd MMM')} — ${count} hearing${count !== 1 ? 's' : ''}` : format(day, 'd MMM')}
-                          className={`aspect-square rounded-lg text-sm font-medium transition-colors flex flex-col items-center justify-center gap-0.5 ${
-                            isSelected
-                              ? 'text-white'
-                              : isT
-                              ? 'bg-amber-50 text-amber-700 font-semibold'
-                              : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                          style={isSelected ? { background: '#1e3a5f' } : {}}
-                        >
-                          <span>{format(day, 'd')}</span>
-                          {count > 0 && (
-                            <span
-                              className={`min-w-[15px] px-1 rounded-full text-[9px] font-bold leading-[13px] ${
-                                isSelected ? 'bg-white text-[#1e3a5f]' : badgeClass
-                              }`}
-                            >
-                              {count}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </>
-                )
-              })()}
-            </div>
-
-            <button
-              onClick={() => { goToDate(new Date()); setShowCalendarPicker(false) }}
-              className="w-full mt-3 py-2 rounded-lg text-sm font-medium text-center border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors"
-            >
-              Jump to Today
-            </button>
-          </div>
-        </div>
+        <CalendarPickerModal
+          initialDate={selectedDate}
+          selectedDate={selectedDate}
+          hearingCounts={monthHearingCounts}
+          onMonthChange={fetchMonthDates}
+          onSelect={(d) => { goToDate(d); setShowCalendarPicker(false) }}
+          onClose={() => setShowCalendarPicker(false)}
+        />
       )}
+
+      {/* ═══ Set a hearing's next date — same real calendar, with counts,
+           instead of the browser's plain native date popup ═══ */}
+      {editingNextDate && (() => {
+        const h = hearings.find((x) => x.id === editingNextDate)
+        if (!h) return null
+        const current = h.next_hearing_date ? parseISO(h.next_hearing_date) : null
+        return (
+          <CalendarPickerModal
+            initialDate={current || new Date()}
+            selectedDate={current}
+            hearingCounts={monthHearingCounts}
+            onMonthChange={fetchMonthDates}
+            onSelect={(d) => { saveNextDate(h.id, toYMD(d)); setEditingNextDate(null) }}
+            onClear={() => { saveNextDate(h.id, ''); setEditingNextDate(null) }}
+            onClose={() => setEditingNextDate(null)}
+            todayLabel="Today"
+          />
+        )
+      })()}
 
       {/* ═══ Month Calendar Strip ═══ */}
       <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 overflow-x-auto print:hidden">
@@ -1083,15 +1154,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         <td className="border border-gray-200 px-2 py-2 text-center">
                           {isFinalStage(h.stage_on_date) ? (
                             <span className="text-xs text-gray-300 italic">—</span>
-                          ) : editingNextDate === h.id ? (
-                            <input
-                              type="date"
-                              autoFocus
-                              defaultValue={h.next_hearing_date || ''}
-                              onBlur={(e) => { if (e.target.value) saveNextDate(h.id, e.target.value); setEditingNextDate(null) }}
-                              onKeyDown={(e) => { if (e.key === 'Enter') { if (e.currentTarget.value) saveNextDate(h.id, e.currentTarget.value); else setEditingNextDate(null) } if (e.key === 'Escape') setEditingNextDate(null) }}
-                              className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
-                            />
                           ) : (
                             <button
                               onClick={() => setEditingNextDate(h.id)}
