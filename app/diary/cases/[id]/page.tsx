@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -30,6 +30,8 @@ import {
   ListChecks,
   BookOpen,
   Eye,
+  Link2,
+  Search,
 } from 'lucide-react'
 
 // ───────────────────── Types ─────────────────────
@@ -77,6 +79,28 @@ interface ImportantPoint {
   case_id: string
   point_text: string
   created_at: string
+}
+
+interface LinkedCase {
+  linkId: string
+  note: string | null
+  other: {
+    id: string
+    full_title: string
+    case_number: string | null
+    case_year: number | null
+    court_name: string
+  }
+}
+
+interface LinkSearchResult {
+  id: string
+  full_title: string
+  case_number: string | null
+  case_year: number | null
+  court_name: string
+  party_plaintiff: string
+  party_defendant: string
 }
 
 interface Hearing {
@@ -265,6 +289,18 @@ export default function CaseDetailPage() {
   const [addingPoint, setAddingPoint] = useState(false)
   const [deletePointId, setDeletePointId] = useState<string | null>(null)
 
+  // Linked cases — mark two cases as related (same accident, appeal of,
+  // connected matter, etc.) so opening either shows a quick jump to the
+  // other.
+  const [linkedCases, setLinkedCases] = useState<LinkedCase[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+  const [linkSearchQuery, setLinkSearchQuery] = useState('')
+  const [linkSearchResults, setLinkSearchResults] = useState<LinkSearchResult[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
+  const [linkNote, setLinkNote] = useState('')
+  const [addingLink, setAddingLink] = useState(false)
+  const linkSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Company picker state
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false)
@@ -351,6 +387,90 @@ export default function CaseDetailPage() {
     setPointsLoading(false)
   }, [id])
 
+  // ───── Load linked cases ─────
+  // case_links rows are directional (case_id / linked_case_id), but the
+  // relationship reads both ways — so pull rows on either side and always
+  // show the *other* case.
+  const loadLinkedCases = useCallback(async () => {
+    if (!id) return
+    setLinksLoading(true)
+    const supabase = createClient()
+    const { data: links } = await supabase
+      .from('case_links')
+      .select('id, case_id, linked_case_id, note')
+      .or(`case_id.eq.${id},linked_case_id.eq.${id}`)
+
+    if (!links || links.length === 0) {
+      setLinkedCases([])
+      setLinksLoading(false)
+      return
+    }
+
+    const otherIds = links.map((l: { case_id: string; linked_case_id: string }) =>
+      l.case_id === id ? l.linked_case_id : l.case_id
+    )
+    const { data: otherCases } = await supabase
+      .from('cases')
+      .select('id, full_title, case_number, case_year, court_name')
+      .in('id', otherIds)
+
+    const caseMap = new Map((otherCases || []).map((c: LinkedCase['other']) => [c.id, c]))
+    const result: LinkedCase[] = links
+      .map((l: { id: string; case_id: string; linked_case_id: string; note: string | null }) => {
+        const otherId = l.case_id === id ? l.linked_case_id : l.case_id
+        const other = caseMap.get(otherId)
+        return other ? { linkId: l.id, note: l.note, other } : null
+      })
+      .filter((x: LinkedCase | null): x is LinkedCase => x !== null)
+
+    setLinkedCases(result)
+    setLinksLoading(false)
+  }, [id])
+
+  function handleLinkSearch(q: string) {
+    setLinkSearchQuery(q)
+    if (linkSearchTimeout.current) clearTimeout(linkSearchTimeout.current)
+    if (q.trim().length < 2) { setLinkSearchResults([]); return }
+    linkSearchTimeout.current = setTimeout(async () => {
+      setLinkSearching(true)
+      const supabase = createClient()
+      const alreadyLinkedIds = new Set(linkedCases.map((l) => l.other.id))
+      const { data } = await supabase
+        .from('cases')
+        .select('id, full_title, case_number, case_year, court_name, party_plaintiff, party_defendant')
+        .neq('id', id)
+        .or(`full_title.ilike.%${q}%,party_plaintiff.ilike.%${q}%,party_defendant.ilike.%${q}%,case_number.ilike.%${q}%`)
+        .limit(15)
+      const results = ((data as LinkSearchResult[]) || []).filter((c) => !alreadyLinkedIds.has(c.id))
+      setLinkSearchResults(results.slice(0, 8))
+      setLinkSearching(false)
+    }, 300)
+  }
+
+  async function addCaseLink(otherCaseId: string) {
+    if (!id) return
+    setAddingLink(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('case_links').insert({
+      case_id: id,
+      linked_case_id: otherCaseId,
+      note: linkNote.trim() || null,
+    })
+    setAddingLink(false)
+    if (!error) {
+      setLinkSearchQuery('')
+      setLinkSearchResults([])
+      setLinkNote('')
+      loadLinkedCases()
+    }
+  }
+
+  async function removeCaseLink(linkId: string) {
+    const supabase = createClient()
+    await supabase.from('case_links').delete().eq('id', linkId)
+    setLinkedCases((prev) => prev.filter((l) => l.linkId !== linkId))
+  }
+
   // ───── Load existing companies (for the Company picker) ─────
   const loadCompanies = useCallback(async () => {
     const supabase = createClient()
@@ -366,9 +486,9 @@ export default function CaseDetailPage() {
   // tracking, and important points all in one page, so it needs all three;
   // Documents stays lazy-loaded since it's its own tab.
   useEffect(() => {
-    if (activeTab === 'overview') { loadHearings(); loadImportantPoints(); loadCompanies() }
+    if (activeTab === 'overview') { loadHearings(); loadImportantPoints(); loadCompanies(); loadLinkedCases() }
     if (activeTab === 'documents') loadDocuments()
-  }, [activeTab, loadHearings, loadDocuments, loadImportantPoints, loadCompanies])
+  }, [activeTab, loadHearings, loadDocuments, loadImportantPoints, loadCompanies, loadLinkedCases])
 
   // ───── Hearing CRUD ─────
   function resetHearingForm() {
@@ -1390,6 +1510,98 @@ export default function CaseDetailPage() {
                         onClick={() => setDeletePointId(p.id)}
                         className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0"
                         title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Linked Cases */}
+          <section className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2">
+              <Link2 className="w-4 h-4" /> Linked Cases
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Cases connected to this one — same accident, an appeal, or anything else worth seeing together.
+            </p>
+
+            {!readOnly && (
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={linkSearchQuery}
+                    onChange={(e) => handleLinkSearch(e.target.value)}
+                    placeholder="Search by party name or case number to link…"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                  />
+                </div>
+                {linkSearching && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" /> Searching...</div>
+                )}
+                {linkSearchResults.length > 0 && (
+                  <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                    {linkSearchResults.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-50">
+                        <div className="min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{c.full_title}</p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {formatCaseNumber(c.case_number || '', c.case_year)} — {c.court_name}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => addCaseLink(c.id)}
+                          disabled={addingLink}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-white shrink-0 disabled:opacity-50"
+                          style={{ background: '#1e3a5f' }}
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Link
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {linkSearchQuery.trim() && (
+                  <input
+                    type="text"
+                    value={linkNote}
+                    onChange={(e) => setLinkNote(e.target.value)}
+                    placeholder="Optional note — e.g. Same accident"
+                    className="mt-2 w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-900 bg-white"
+                  />
+                )}
+              </div>
+            )}
+
+            {linksLoading ? (
+              <div className="flex justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              </div>
+            ) : linkedCases.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">No linked cases yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {linkedCases.map((l) => (
+                  <div key={l.linkId} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg p-3">
+                    <div className="min-w-0">
+                      <Link href={`/diary/cases/${l.other.id}`} className="text-sm font-medium hover:underline block truncate" style={{ color: '#1e3a5f' }}>
+                        {l.other.full_title}
+                      </Link>
+                      <p className="text-xs text-gray-500 mt-0.5 truncate">
+                        {formatCaseNumber(l.other.case_number || '', l.other.case_year)} — {l.other.court_name}
+                        {l.note && <span className="text-gray-400"> · {l.note}</span>}
+                      </p>
+                    </div>
+                    {!readOnly && (
+                      <button
+                        onClick={() => removeCaseLink(l.linkId)}
+                        className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors shrink-0"
+                        title="Remove link"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

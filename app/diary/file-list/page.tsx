@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, parseISO } from 'date-fns'
 import { Printer, Search } from 'lucide-react'
+import { DISTRICT_COURTS, getCourtShortLabel } from '@/lib/constants/courts'
 
 interface CaseRow {
   id: string
@@ -16,7 +17,25 @@ interface CaseRow {
   client_name: string | null
   is_company_case: boolean
   case_stage: string | null
+  city: string | null
   hearing_date: string
+}
+
+// Prefer the case's own saved city; fall back to the court's district for
+// older cases that don't have one, and finally the High Court bench.
+const DISTRICT_BY_CODE = new Map(DISTRICT_COURTS.map((c) => [c.code, c.district]))
+const HC_BENCH_CITY: Record<string, string> = { jodhpur: 'Jodhpur', jaipur: 'Jaipur' }
+function cityFor(c: CaseRow): string {
+  if (c.city?.trim()) return c.city.trim()
+  return DISTRICT_BY_CODE.get(c.court_code) || HC_BENCH_CITY[c.court_code] || 'Other'
+}
+
+// Short court name for the printed list; custom courts have no short code
+// so fall back to their saved full name instead of the raw CUSTOM_<uuid>.
+function courtShortFor(c: CaseRow): string {
+  const short = getCourtShortLabel(c.court_code || '')
+  if (short && !short.startsWith('CUSTOM_')) return short
+  return c.court_name
 }
 
 function today() {
@@ -80,35 +99,62 @@ function bucketFor(c: CaseRow): string {
   return isMactOrWc(c.court_code) ? 'Private MACT' : 'Private'
 }
 
-// One section per bucket, one date sub-group per hearing date within it.
+// One section per bucket, then one city sub-group, then one date sub-group
+// per hearing date within that city.
 function BucketList({ cases }: { cases: CaseRow[] }) {
-  const byDate: Record<string, CaseRow[]> = {}
+  const byCity: Record<string, CaseRow[]> = {}
   for (const c of cases) {
-    if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
-    byDate[c.hearing_date].push(c)
+    const city = cityFor(c)
+    if (!byCity[city]) byCity[city] = []
+    byCity[city].push(c)
   }
-  const dates = Object.keys(byDate).sort()
+  const cities = Object.keys(byCity).sort((a, b) => a.localeCompare(b))
+  const singleCity = cities.length === 1
 
   return (
-    <div className="space-y-3">
-      {dates.map((date) => (
-        <div key={date}>
-          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5">
-            {fmtDate(date)}
+    <div className="space-y-4">
+      {cities.map((city) => {
+        const byDate: Record<string, CaseRow[]> = {}
+        for (const c of byCity[city]) {
+          if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
+          byDate[c.hearing_date].push(c)
+        }
+        const dates = Object.keys(byDate).sort()
+
+        return (
+          <div key={city}>
+            {/* Only show the city heading when there's more than one — no
+                point labelling it when everything in this bucket is from
+                the same place. */}
+            {!singleCity && (
+              <div className="text-xs font-bold text-white uppercase tracking-wide mb-2 px-2 py-1 rounded inline-block" style={{ background: '#7c8a9a' }}>
+                {city}
+              </div>
+            )}
+            <div className="space-y-3">
+              {dates.map((date) => (
+                <div key={date}>
+                  <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5">
+                    {fmtDate(date)}
+                  </div>
+                  <ol className="space-y-1">
+                    {byDate[date].map((c) => (
+                      <li key={c.id} className="text-sm text-gray-800 leading-5">
+                        {c.case_number && (
+                          <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
+                        )}
+                        <span>{c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}</span>
+                        <span className="text-gray-400"> [{courtShortFor(c)}]</span>
+                        {c.case_stage && <span className="text-gray-400"> ({c.case_stage})</span>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+            </div>
           </div>
-          <ol className="space-y-1">
-            {byDate[date].map((c) => (
-              <li key={c.id} className="text-sm text-gray-800 leading-5">
-                {c.case_number && (
-                  <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
-                )}
-                <span>{c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}</span>
-                {c.case_stage && <span className="text-gray-400"> ({c.case_stage})</span>}
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -153,7 +199,7 @@ export default function FileListPage() {
     const caseIds = [...new Set(hearings.map((h: { case_id: string }) => h.case_id))]
     const { data: casesData } = await supabase
       .from('cases')
-      .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, is_company_case, case_stage')
+      .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, is_company_case, case_stage, city')
       .in('id', caseIds)
       .eq('advocate_id', adv.id)
 
