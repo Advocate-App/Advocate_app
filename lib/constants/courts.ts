@@ -94,12 +94,13 @@ export const DISTRICT_CASE_TYPES = [
 ]
 
 export const DISTRICT_STAGES = [
+  'Custom...',
   'Summons', 'Appearance', 'Written Statement', 'Issues',
   'Plaintiff Evidence', 'Defendant Evidence', 'Arguments',
   'Judgment Reserved', 'Judgment', 'Execution',
-  '805', 'Arg', 'EMI', 'CPL', 'Sin', 'Eny', 'Ent',
+  '805', 'Arg', 'EMI', 'CPL', 'Sin', 'Eny', 'Ent', 'PO', 'Jaach',
   'Lok Adalat', 'Disposed',
-  'Adjourned', 'For Orders', 'Other', 'Custom...',
+  'Adjourned', 'For Orders', 'Other',
 ]
 
 export const HC_BENCHES = [
@@ -121,10 +122,11 @@ export const HC_CASE_TYPES = [
 ]
 
 export const HC_STAGES = [
+  'Custom...',
   'Admission', 'Motion', 'Regular Hearing', 'Final Hearing',
   'Arguments', 'Judgment Reserved', 'Judgment',
   'For Orders', 'Notice', 'Service Complete',
-  'Counter Affidavit', 'Rejoinder', 'Lok Adalat', 'Disposed', 'Other', 'Custom...',
+  'Counter Affidavit', 'Rejoinder', 'Lok Adalat', 'Disposed', 'Other',
 ]
 
 export const CLIENT_SIDES_DISTRICT = [

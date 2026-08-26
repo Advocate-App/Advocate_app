@@ -217,6 +217,7 @@ export default function CaseDetailPage() {
     happened: false,
   })
   const [hearingSaving, setHearingSaving] = useState(false)
+  const [hearingCustomStage, setHearingCustomStage] = useState('')
 
   // Documents state
   const [documents, setDocuments] = useState<CaseDocument[]>([])
@@ -377,20 +378,26 @@ export default function CaseDetailPage() {
       outcome_notes: '',
       happened: false,
     })
+    setHearingCustomStage('')
     setShowHearingForm(false)
     setEditingHearingId(null)
   }
 
   function startEditHearing(h: Hearing) {
+    // A stage that isn't one of the preset options was typed in as custom
+    // last time — re-select "Custom..." and pre-fill the text so editing
+    // doesn't silently overwrite it with a preset stage.
+    const isPreset = h.stage_on_date ? stages.includes(h.stage_on_date) : true
     setHearingForm({
       hearing_date: h.hearing_date || '',
-      stage_on_date: h.stage_on_date || '',
+      stage_on_date: h.stage_on_date ? (isPreset ? h.stage_on_date : 'Custom...') : '',
       next_hearing_date: h.next_hearing_date || '',
       purpose: h.purpose || '',
       appearing_advocate_name: h.appearing_advocate_name || 'self',
       outcome_notes: h.outcome_notes || '',
       happened: h.happened,
     })
+    setHearingCustomStage(isPreset ? '' : (h.stage_on_date || ''))
     setEditingHearingId(h.id)
     setShowHearingForm(true)
   }
@@ -398,13 +405,20 @@ export default function CaseDetailPage() {
   async function saveHearing(e: React.FormEvent) {
     e.preventDefault()
     if (!hearingForm.hearing_date) return
+    if (hearingForm.stage_on_date === 'Custom...' && !hearingCustomStage.trim()) return
     setHearingSaving(true)
     const supabase = createClient()
+
+    // Resolve "Custom..." to whatever was actually typed — otherwise the
+    // literal text "Custom..." would get saved as the stage.
+    const resolvedStage = hearingForm.stage_on_date === 'Custom...'
+      ? hearingCustomStage.trim()
+      : hearingForm.stage_on_date
 
     const row = {
       case_id: id,
       hearing_date: hearingForm.hearing_date,
-      stage_on_date: hearingForm.stage_on_date || null,
+      stage_on_date: resolvedStage || null,
       next_hearing_date: hearingForm.next_hearing_date || null,
       purpose: hearingForm.purpose || null,
       appearing_advocate_name: hearingForm.appearing_advocate_name || 'self',
@@ -421,9 +435,9 @@ export default function CaseDetailPage() {
     }
 
     // Also update case_stage if provided
-    if (hearingForm.stage_on_date && caseData) {
-      await supabase.from('cases').update({ case_stage: hearingForm.stage_on_date }).eq('id', id)
-      setCaseData({ ...caseData, case_stage: hearingForm.stage_on_date })
+    if (resolvedStage && caseData) {
+      await supabase.from('cases').update({ case_stage: resolvedStage }).eq('id', id)
+      setCaseData({ ...caseData, case_stage: resolvedStage })
     }
 
     // Auto-create next hearing if next date is provided (so it shows in
@@ -445,7 +459,7 @@ export default function CaseDetailPage() {
           case_id: id,
           hearing_date: hearingForm.next_hearing_date,
           previous_hearing_date: hearingForm.hearing_date,
-          stage_on_date: hearingForm.stage_on_date || null,
+          stage_on_date: resolvedStage || null,
           appearing_advocate_name: hearingForm.appearing_advocate_name || 'self',
           happened: false,
           set_by_advocate_id: advocateId,
@@ -986,48 +1000,47 @@ export default function CaseDetailPage() {
       {/* ======== OVERVIEW ======== */}
       {activeTab === 'overview' && (
         <div className="space-y-4">
-          {/* Court Info */}
-          <section className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          {/* Court Info — compact inline rows (label and value on one
+               line), not stacked, so this doesn't eat half the screen */}
+          <section className="bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Court Details
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Next Date" value={formatDate(nextHearingDate)} />
-              <Field label="Court Level" value={caseData.court_level === 'high_court' ? 'High Court' : 'District Court'} />
-              <Field label="Court" value={getCourtLabel(caseData.court_code || caseData.court_name)} />
-              {caseData.hc_bench && <Field label="HC Bench" value={capitalize(caseData.hc_bench)} />}
-              <Field label="Case Type" value={caseData.case_type} />
-              <Field label="Case Number" value={formatCaseNumber(caseData.case_number, caseData.case_year)} />
-              <Field label="Current Stage" value={caseData.case_stage} />
-              <Field label="Status" value={capitalize(caseData.status)} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+              <CompactField label="Next Date" value={formatDate(nextHearingDate)} />
+              <CompactField label="Court Level" value={caseData.court_level === 'high_court' ? 'High Court' : 'District Court'} />
+              <CompactField label="Court" value={getCourtLabel(caseData.court_code || caseData.court_name)} />
+              {caseData.hc_bench && <CompactField label="HC Bench" value={capitalize(caseData.hc_bench)} />}
+              <CompactField label="Case Type" value={caseData.case_type} />
+              <CompactField label="Case Number" value={formatCaseNumber(caseData.case_number, caseData.case_year)} />
+              <CompactField label="Current Stage" value={caseData.case_stage} />
+              <CompactField label="Status" value={capitalize(caseData.status)} />
             </div>
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <span className="block text-xs text-gray-500 mb-2">Lok Adalat</span>
-              <div className="flex items-center gap-5">
-                <label className={`flex items-center gap-2 text-sm text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
-                  <input
-                    type="checkbox"
-                    checked={caseData.lok_adalat_fit === true}
-                    onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? true : null)}
-                    disabled={readOnly}
-                    className="w-4 h-4 rounded border-gray-300"
-                    style={{ accentColor: '#1e3a5f' }}
-                  />
-                  Fit for Lok Adalat
-                </label>
-                <label className={`flex items-center gap-2 text-sm text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
-                  <input
-                    type="checkbox"
-                    checked={caseData.lok_adalat_fit === false}
-                    onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? false : null)}
-                    disabled={readOnly}
-                    className="w-4 h-4 rounded border-gray-300"
-                    style={{ accentColor: '#1e3a5f' }}
-                  />
-                  Not Fit for Lok Adalat
-                </label>
-                {trackingSaving === 'lok_adalat_fit' && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
-              </div>
+            <div className="mt-1.5 pt-1.5 border-t border-gray-100 flex items-center gap-4 flex-wrap">
+              <span className="text-xs text-gray-500 shrink-0">Lok Adalat</span>
+              <label className={`flex items-center gap-1.5 text-xs text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  checked={caseData.lok_adalat_fit === true}
+                  onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? true : null)}
+                  disabled={readOnly}
+                  className="w-3.5 h-3.5 rounded border-gray-300"
+                  style={{ accentColor: '#1e3a5f' }}
+                />
+                Fit
+              </label>
+              <label className={`flex items-center gap-1.5 text-xs text-gray-700 ${readOnly ? '' : 'cursor-pointer'}`}>
+                <input
+                  type="checkbox"
+                  checked={caseData.lok_adalat_fit === false}
+                  onChange={(e) => !readOnly && setLokAdalatFit(e.target.checked ? false : null)}
+                  disabled={readOnly}
+                  className="w-3.5 h-3.5 rounded border-gray-300"
+                  style={{ accentColor: '#1e3a5f' }}
+                />
+                Not Fit
+              </label>
+              {trackingSaving === 'lok_adalat_fit' && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />}
             </div>
           </section>
 
@@ -1080,7 +1093,7 @@ export default function CaseDetailPage() {
                       </label>
                       <select
                         value={hearingForm.stage_on_date}
-                        onChange={(e) => setHearingForm({ ...hearingForm, stage_on_date: e.target.value })}
+                        onChange={(e) => { setHearingForm({ ...hearingForm, stage_on_date: e.target.value }); if (e.target.value !== 'Custom...') setHearingCustomStage('') }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                       >
                         <option value="">-- Select Stage --</option>
@@ -1088,6 +1101,16 @@ export default function CaseDetailPage() {
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
+                      {hearingForm.stage_on_date === 'Custom...' && (
+                        <input
+                          autoFocus
+                          type="text"
+                          value={hearingCustomStage}
+                          onChange={(e) => setHearingCustomStage(e.target.value)}
+                          placeholder="Type custom stage…"
+                          className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1930,6 +1953,17 @@ function Field({ label, value }: { label: string; value: string | null | undefin
     <div>
       <span className="block text-xs text-gray-500 mb-0.5">{label}</span>
       <span className="text-sm text-gray-800">{value || '--'}</span>
+    </div>
+  )
+}
+
+// ───── Same as Field, but label and value share one line — for a section
+// that needs to stay compact instead of one row per field ─────
+function CompactField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1 text-sm border-b border-gray-50 last:border-0 sm:border-0">
+      <span className="text-gray-500 shrink-0">{label}</span>
+      <span className="text-gray-800 font-medium text-right truncate">{value || '--'}</span>
     </div>
   )
 }

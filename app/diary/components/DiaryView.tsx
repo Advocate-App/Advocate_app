@@ -108,6 +108,7 @@ interface SearchResult {
   court_code: string | null
   court_name: string
   court_level: string
+  city: string | null
   party_plaintiff?: string
   party_defendant?: string
 }
@@ -390,6 +391,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedCase, setSelectedCase] = useState<SearchResult | null>(null)
+  const [selectedCaseLastDate, setSelectedCaseLastDate] = useState<string | null | undefined>(undefined) // undefined = loading
   const [newHearingForm, setNewHearingForm] = useState({
     hearing_date: '',
     stage_on_date: '',
@@ -668,7 +670,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const data = await fetchAllRows<SearchResult>((from, to) =>
         supabase
           .from('cases')
-          .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, party_plaintiff, party_defendant')
+          .select('id, full_title, case_number, case_year, case_type, court_code, court_name, court_level, city, party_plaintiff, party_defendant')
           .range(from, to)
       ).catch((err) => { console.error('Case search error:', err); return [] as SearchResult[] })
       const qLow = q.toLowerCase()
@@ -679,6 +681,22 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       setSearchResults(filtered.slice(0, 10) as SearchResult[])
       setSearching(false)
     }, 300)
+  }
+
+  // Picking a case shows its last hearing date too, alongside court/case
+  // number — so it's clear at a glance this is the right, active case
+  // before a new hearing gets added to it.
+  async function selectCase(c: SearchResult) {
+    setSelectedCase(c)
+    setSelectedCaseLastDate(undefined)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('hearings')
+      .select('hearing_date')
+      .eq('case_id', c.id)
+      .order('hearing_date', { ascending: false })
+      .limit(1)
+    setSelectedCaseLastDate(data && data.length > 0 ? data[0].hearing_date : null)
   }
 
   async function addHearing(e: React.FormEvent) {
@@ -721,6 +739,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchQuery('')
     setSearchResults([])
     setSelectedCase(null)
+    setSelectedCaseLastDate(undefined)
     setNewHearingForm({ hearing_date: toYMD(selectedDate), stage_on_date: '', next_hearing_date: '', purpose: '', appearing_advocate_name: 'self', notes: '' })
   }
 
@@ -729,6 +748,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setSearchQuery('')
     setSearchResults([])
     setSelectedCase(null)
+    setSelectedCaseLastDate(undefined)
     setShowAddModal(true)
   }
 
@@ -1341,9 +1361,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     {searchResults.length > 0 && (
                       <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
                         {searchResults.map((c) => (
-                          <button key={c.id} onClick={() => setSelectedCase(c)} className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
+                          <button key={c.id} onClick={() => selectCase(c)} className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
                             <p className="text-sm font-medium text-gray-800">{c.full_title}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{c.case_type ? `${c.case_type} ` : ''}{formatCaseNumber(c.case_number, c.case_year)} — {getCourtLabel(c.court_code || c.court_name)}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {c.case_type ? `${c.case_type} ` : ''}{formatCaseNumber(c.case_number, c.case_year)} — {getCourtLabel(c.court_code || c.court_name)}{c.city ? `, ${c.city}` : ''}
+                            </p>
                           </button>
                         ))}
                       </div>
@@ -1357,12 +1379,28 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               ) : (
                 <div>
                   <div className="p-3 rounded-lg mb-4" style={{ background: '#f0f4f8' }}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{selectedCase.full_title}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{selectedCase.case_type ? `${selectedCase.case_type} ` : ''}{formatCaseNumber(selectedCase.case_number, selectedCase.case_year)} — {getCourtLabel(selectedCase.court_code || selectedCase.court_name)}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">{selectedCase.full_title}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {selectedCase.case_type ? `${selectedCase.case_type} ` : ''}{formatCaseNumber(selectedCase.case_number, selectedCase.case_year)}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          <span className="text-gray-400">Court:</span> {getCourtLabel(selectedCase.court_code || selectedCase.court_name)}
+                          {selectedCase.city && <>, {selectedCase.city}</>}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          <span className="text-gray-400">Last date:</span>{' '}
+                          {selectedCaseLastDate === undefined ? (
+                            <Loader2 className="inline w-3 h-3 animate-spin text-gray-400" />
+                          ) : selectedCaseLastDate ? (
+                            formatDD_MM(selectedCaseLastDate)
+                          ) : (
+                            'No hearings yet'
+                          )}
+                        </p>
                       </div>
-                      <button onClick={() => setSelectedCase(null)} className="text-xs text-gray-500 hover:text-gray-700 underline">Change</button>
+                      <button onClick={() => { setSelectedCase(null); setSelectedCaseLastDate(undefined) }} className="text-xs text-gray-500 hover:text-gray-700 underline shrink-0">Change</button>
                     </div>
                   </div>
                   <form onSubmit={addHearing} className="space-y-4">
