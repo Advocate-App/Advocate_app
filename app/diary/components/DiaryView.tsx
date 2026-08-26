@@ -808,16 +808,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   // Print slip — one fixed, generously-sized layout (no more shrinking the
   // font as the day gets busier). When more cases show up than fit in one
-  // column, the overflow spills into a second column on the same A4 sheet
-  // instead of shrinking text or spilling onto a second printed page — so
-  // it can be folded down the middle, giving two full sides to carry
-  // instead of one.
+  // column, the overflow spills into a second, then a third column on the
+  // same A4 sheet instead of shrinking text or spilling onto a second
+  // printed page — so it can be folded into thirds, giving three full
+  // sides to carry instead of one.
   const slipSorted = [...hearings].sort((a, b) =>
     getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
   )
   const SLIP_ROWS_PER_COLUMN = 20
-  const slipRightCases = slipSorted.slice(0, SLIP_ROWS_PER_COLUMN)
-  const slipLeftCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN) // empty on a normal day
+  const slipRightCases = slipSorted.slice(0, SLIP_ROWS_PER_COLUMN) // rightmost — always shown
+  const slipMiddleCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN, SLIP_ROWS_PER_COLUMN * 2) // empty on a normal day
+  const slipLeftCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN * 2) // empty unless it's a very busy day
 
   return (
     <div className="max-w-6xl print:max-w-none">
@@ -1478,18 +1479,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             display: flex !important;
             justify-content: space-between;
             align-items: flex-start;
-            gap: 8mm;
+            gap: 5mm;
             position: static !important;
             width: 100% !important;
             height: auto !important;
           }
           body.print-slip-mode .slip-col {
-            width: 92mm;
+            width: 56mm;
             font-family: Georgia, 'Times New Roman', serif;
-            font-size: 14px;
-            line-height: 1.6;
+            font-size: 13px;
+            line-height: 1.5;
             border: 0.5px solid #999;
-            padding: 4mm 4mm 3mm;
+            padding: 3mm 3mm 2.5mm;
             box-sizing: border-box;
             background: white;
           }
@@ -1513,10 +1514,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               {count} matter{count !== 1 ? 's' : ''} · {format(selectedDate, 'd MMMM yyyy')}
             </div>
           )
-          // The empty left column is still rendered (just invisible) rather
-          // than omitted — with only one flex child, space-between would
-          // pack it to the left edge instead of the right, breaking the
-          // normal-day layout where the slip has always sat on the right.
+          // The empty left/middle columns are still rendered (just
+          // invisible) rather than omitted — with fewer flex children,
+          // space-between would pack the visible one to the left edge
+          // instead of the right, breaking the normal-day layout where
+          // the slip has always sat on the right.
           const renderColumn = (cases: typeof slipSorted, hideIfEmpty = false) => (
             <div className="slip-col" style={hideIfEmpty && cases.length === 0 ? { visibility: 'hidden' } : undefined}>
               {headerLine}
@@ -1546,6 +1548,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           return (
             <>
               {renderColumn(slipLeftCases, true)}
+              {renderColumn(slipMiddleCases, true)}
               {renderColumn(slipRightCases)}
             </>
           )
