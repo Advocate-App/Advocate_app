@@ -99,62 +99,39 @@ function bucketFor(c: CaseRow): string {
   return isMactOrWc(c.court_code) ? 'Private MACT' : 'Private'
 }
 
-// One section per bucket, then one city sub-group, then one date sub-group
-// per hearing date within that city.
+// One date sub-group per hearing date. City is handled one level up now —
+// each city gets its own card instead of being buried inside a bucket's
+// card, since a satellite city like Dungarpur usually has few enough
+// cases to fit cleanly in one small list on its own.
 function BucketList({ cases }: { cases: CaseRow[] }) {
-  const byCity: Record<string, CaseRow[]> = {}
+  const byDate: Record<string, CaseRow[]> = {}
   for (const c of cases) {
-    const city = cityFor(c)
-    if (!byCity[city]) byCity[city] = []
-    byCity[city].push(c)
+    if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
+    byDate[c.hearing_date].push(c)
   }
-  const cities = Object.keys(byCity).sort((a, b) => a.localeCompare(b))
-  const singleCity = cities.length === 1
+  const dates = Object.keys(byDate).sort()
 
   return (
-    <div className="space-y-4 print:space-y-2">
-      {cities.map((city) => {
-        const byDate: Record<string, CaseRow[]> = {}
-        for (const c of byCity[city]) {
-          if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
-          byDate[c.hearing_date].push(c)
-        }
-        const dates = Object.keys(byDate).sort()
-
-        return (
-          <div key={city}>
-            {/* Only show the city heading when there's more than one — no
-                point labelling it when everything in this bucket is from
-                the same place. */}
-            {!singleCity && (
-              <div className="text-xs font-bold text-white uppercase tracking-wide mb-2 px-2 py-1 rounded inline-block print:text-[9px] print:mb-1 print:px-1 print:py-0.5" style={{ background: '#7c8a9a' }}>
-                {city}
-              </div>
-            )}
-            <div className="space-y-3 print:space-y-1.5">
-              {dates.map((date) => (
-                <div key={date}>
-                  <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1">
-                    {fmtDate(date)}
-                  </div>
-                  <ol className="space-y-1 print:space-y-0.5">
-                    {byDate[date].map((c) => (
-                      <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight">
-                        {c.case_number && (
-                          <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
-                        )}
-                        <span>{c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}</span>
-                        <span className="text-gray-400"> [{courtShortFor(c)}]</span>
-                        {c.case_stage && <span className="text-gray-400"> ({c.case_stage})</span>}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ))}
-            </div>
+    <div className="space-y-3 print:space-y-1.5">
+      {dates.map((date) => (
+        <div key={date}>
+          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1">
+            {fmtDate(date)}
           </div>
-        )
-      })}
+          <ol className="space-y-1 print:space-y-0.5">
+            {byDate[date].map((c) => (
+              <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight">
+                {c.case_number && (
+                  <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
+                )}
+                <span>{c.party_plaintiff} <span className="text-gray-400">vs</span> {c.party_defendant}</span>
+                <span className="text-gray-400"> [{courtShortFor(c)}]</span>
+                {c.case_stage && <span className="text-gray-400"> ({c.case_stage})</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
     </div>
   )
 }
@@ -221,14 +198,33 @@ export default function FileListPage() {
     setLoading(false)
   }
 
-  // Group everything into buckets: Private / Private MACT / each company
-  const buckets: Record<string, CaseRow[]> = {}
+  // Group everything into cards: one per (bucket, city) combo that actually
+  // has cases. A satellite city like Dungarpur gets its own small, clean
+  // list instead of being buried inside the big Udaipur "Private" card —
+  // easier to grab the right slip without mixing locations together.
+  const sections: Record<string, CaseRow[]> = {}
   for (const c of cases) {
-    const key = bucketFor(c)
-    if (!buckets[key]) buckets[key] = []
-    buckets[key].push(c)
+    const key = `${bucketFor(c)}::${cityFor(c)}`
+    if (!sections[key]) sections[key] = []
+    sections[key].push(c)
   }
-  const bucketNames = Object.keys(buckets).sort((a, b) => bucketSortKey(a).localeCompare(bucketSortKey(b)))
+
+  // Only label a card with its city when that bucket actually spans more
+  // than one city in this result set — keeps the common case (everything
+  // in one city) clean, and calls out the city only when it's needed.
+  const citiesPerBucket: Record<string, Set<string>> = {}
+  for (const key of Object.keys(sections)) {
+    const [bucket, city] = key.split('::')
+    if (!citiesPerBucket[bucket]) citiesPerBucket[bucket] = new Set()
+    citiesPerBucket[bucket].add(city)
+  }
+
+  const sectionKeys = Object.keys(sections).sort((a, b) => {
+    const [bucketA, cityA] = a.split('::')
+    const [bucketB, cityB] = b.split('::')
+    const byBucket = bucketSortKey(bucketA).localeCompare(bucketSortKey(bucketB))
+    return byBucket !== 0 ? byBucket : cityA.localeCompare(cityB)
+  })
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -300,19 +296,28 @@ export default function FileListPage() {
                 </div>
               </div>
 
-              {/* One section per bucket: Private, Private MACT, each company */}
+              {/* One card per bucket, and per city within that bucket when
+                  there's more than one — Private (Dungarpur) prints as its
+                  own small, clean list instead of being buried inside a
+                  big Private (Udaipur) card. */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-3 print:gap-3">
-                {bucketNames.map((name) => (
-                  <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border">
-                    <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5" style={{ background: '#1e3a5f' }}>
-                      <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
-                      <span className="text-xs text-blue-200 print:text-[10px]">({buckets[name].length})</span>
+                {sectionKeys.map((key) => {
+                  const [bucketName, city] = key.split('::')
+                  const rows = sections[key]
+                  const showCity = citiesPerBucket[bucketName].size > 1
+                  const title = showCity ? `${bucketName} (${city})` : bucketName
+                  return (
+                    <div key={key} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border">
+                      <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5" style={{ background: '#1e3a5f' }}>
+                        <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{title}</span>
+                        <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
+                      </div>
+                      <div className="p-4 print:p-2">
+                        <BucketList cases={rows} />
+                      </div>
                     </div>
-                    <div className="p-4 print:p-2">
-                      <BucketList cases={buckets[name]} />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Summary */}
