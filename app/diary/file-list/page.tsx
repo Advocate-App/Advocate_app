@@ -115,12 +115,12 @@ function BucketList({ cases }: { cases: CaseRow[] }) {
     <div className="space-y-3 print:space-y-1.5">
       {dates.map((date) => (
         <div key={date}>
-          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1">
+          <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1 print:break-after-avoid">
             {fmtDate(date)}
           </div>
           <ol className="space-y-1 print:space-y-0.5">
             {byDate[date].map((c) => (
-              <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight">
+              <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight print:break-inside-avoid">
                 {c.case_number && (
                   <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
                 )}
@@ -141,6 +141,14 @@ function bucketSortKey(name: string): string {
   if (name === 'Private') return '0'
   if (name === 'Private MACT') return '1'
   return `2${name.toLowerCase()}`
+}
+
+// Udaipur (head office) first, then Dungarpur, then everywhere else A→Z —
+// so cases from the same city always print together.
+function citySortKey(city: string): string {
+  if (city === 'Udaipur') return '0'
+  if (city === 'Dungarpur') return '1'
+  return `2${city.toLowerCase()}`
 }
 
 export default function FileListPage() {
@@ -198,33 +206,29 @@ export default function FileListPage() {
     setLoading(false)
   }
 
-  // Group everything into cards: one per (bucket, city) combo that actually
-  // has cases. A satellite city like Dungarpur gets its own small, clean
-  // list instead of being buried inside the big Udaipur "Private" card —
-  // easier to grab the right slip without mixing locations together.
-  const sections: Record<string, CaseRow[]> = {}
+  // Group everything by city first, then by bucket within that city — so
+  // when printed, one city's cards all sit together and a new city starts
+  // on a fresh page instead of scattering cities across the same sheet.
+  const byCity: Record<string, CaseRow[]> = {}
   for (const c of cases) {
-    const key = `${bucketFor(c)}::${cityFor(c)}`
-    if (!sections[key]) sections[key] = []
-    sections[key].push(c)
+    const city = cityFor(c)
+    if (!byCity[city]) byCity[city] = []
+    byCity[city].push(c)
   }
+  const cityNames = Object.keys(byCity).sort((a, b) => citySortKey(a).localeCompare(citySortKey(b)))
+  const multiCity = cityNames.length > 1
 
-  // Only label a card with its city when that bucket actually spans more
-  // than one city in this result set — keeps the common case (everything
-  // in one city) clean, and calls out the city only when it's needed.
-  const citiesPerBucket: Record<string, Set<string>> = {}
-  for (const key of Object.keys(sections)) {
-    const [bucket, city] = key.split('::')
-    if (!citiesPerBucket[bucket]) citiesPerBucket[bucket] = new Set()
-    citiesPerBucket[bucket].add(city)
+  function bucketsFor(rows: CaseRow[]): { name: string; rows: CaseRow[] }[] {
+    const map: Record<string, CaseRow[]> = {}
+    for (const c of rows) {
+      const key = bucketFor(c)
+      if (!map[key]) map[key] = []
+      map[key].push(c)
+    }
+    return Object.keys(map)
+      .sort((a, b) => bucketSortKey(a).localeCompare(bucketSortKey(b)))
+      .map((name) => ({ name, rows: map[name] }))
   }
-
-  const sectionKeys = Object.keys(sections).sort((a, b) => {
-    const [bucketA, cityA] = a.split('::')
-    const [bucketB, cityB] = b.split('::')
-    const byBucket = bucketSortKey(bucketA).localeCompare(bucketSortKey(bucketB))
-    return byBucket !== 0 ? byBucket : cityA.localeCompare(cityB)
-  })
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -296,29 +300,38 @@ export default function FileListPage() {
                 </div>
               </div>
 
-              {/* One card per bucket, and per city within that bucket when
-                  there's more than one — Private (Dungarpur) prints as its
-                  own small, clean list instead of being buried inside a
-                  big Private (Udaipur) card. */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-3 print:gap-3">
-                {sectionKeys.map((key) => {
-                  const [bucketName, city] = key.split('::')
-                  const rows = sections[key]
-                  const showCity = citiesPerBucket[bucketName].size > 1
-                  const title = showCity ? `${bucketName} (${city})` : bucketName
-                  return (
-                    <div key={key} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border">
-                      <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5" style={{ background: '#1e3a5f' }}>
-                        <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{title}</span>
-                        <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
-                      </div>
-                      <div className="p-4 print:p-2">
-                        <BucketList cases={rows} />
-                      </div>
+              {/* One block per city — each starts its own printed page(s)
+                  so you can hand off one city's slips without cutting
+                  into another's. Inside each city, cards flow through
+                  print-columns (not a rigid grid) so a long bucket like
+                  Private MACT just keeps filling the same page instead of
+                  jumping to a whole fresh page and wasting what's left. */}
+              {cityNames.map((city, cityIdx) => (
+                <div key={city} className={cityIdx > 0 ? 'print:break-before-page' : undefined}>
+                  {multiCity && (
+                    <div className="text-sm font-bold mb-2 print:text-xs print:mb-1.5" style={{ color: '#1e3a5f' }}>
+                      {city}
                     </div>
-                  )
-                })}
-              </div>
+                  )}
+                  {/* CSS columns (not a grid) for print — a long bucket like
+                      Private MACT just keeps flowing into the next column
+                      on the same page instead of the whole card jumping to
+                      a fresh page and wasting what's left of this one. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
+                    {bucketsFor(byCity[city]).map(({ name, rows }) => (
+                      <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border print:mb-[3mm] print:break-inside-auto">
+                        <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
+                          <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
+                          <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
+                        </div>
+                        <div className="p-4 print:p-2">
+                          <BucketList cases={rows} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
 
               {/* Summary */}
               <div className="text-xs text-gray-400 text-right print:hidden">
