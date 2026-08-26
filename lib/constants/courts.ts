@@ -178,12 +178,14 @@ export function getCourtShortLabel(code: string): string {
     SDMB_UDR: 'SDM-B',  SDMG_UDR: 'SDM-G',    RAA_UDR: 'RAA',
     PCPNDT_UDR: 'PCPNDT',
     // Dungarpur
-    MACT_DGP: 'MACT-D',  NI_DGP: 'NI-D',      DCF_DGP: 'DCF-D',   DCR_DGP: 'DC-D',  DCR_SGW: 'Sagwara',
-    MACT_SGW: 'Mact-Sag', MACT_MAW: 'Mact-Maw',
+    MACT_DGP: 'MACT-D',  NI_DGP: 'NI-D',      DCF_DGP: 'DCF-D',   DCR_DGP: 'DC-D',  DCR_SGW: 'DC-Sag',
+    MACT_SGW: 'MACT-Sag', MACT_MAW: 'Mact-Maw',
     // Rajsamand
     MACT_RSM: 'MACT-R',  NI_RSM: 'NI-R',      DCF_RSM: 'DCF-R',   DCR_RSM: 'DC-R',
-    // Salumber
-    MACT_SLM: 'MACT-S',  NI_SLM: 'NI-S',      DCF_SLM: 'DCF-S',
+    // Salumber — "SL" specifically, not a bare "S", so it can never be
+    // confused with Sagwara ("Sag") — two different towns whose names
+    // both start with S.
+    MACT_SLM: 'MACT-SL', NI_SLM: 'NI-SL',     DCF_SLM: 'DCF-SL',
     // Banswara
     MACT_BNW: 'MACT-B',  NI_BNW: 'NI-B',      DCF_BNW: 'DCF-B',   DCR_BNW: 'DC-B',
     // Nathdwara
