@@ -24,7 +24,6 @@ import {
   getDay,
 } from 'date-fns'
 import {
-  getCourtLabel,
   getCourtShortLabel,
   getCourtColor,
   getCourtSortPriority,
@@ -1118,7 +1117,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name */}
                         <td className="border border-gray-200 px-2 py-2">
                           <span
-                            className="inline-block max-w-[60px] md:max-w-none truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700"
+                            className="inline-block max-w-[60px] md:max-w-[130px] truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700"
                             style={{ background: courtBg }}
                             title={courtShortLabel(courtCode, h.caseData.court_name)}
                           >
@@ -1378,7 +1377,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           <button key={c.id} onClick={() => selectCase(c)} className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors">
                             <p className="text-sm font-medium text-gray-800">{c.full_title}</p>
                             <p className="text-xs text-gray-500 mt-0.5">
-                              {c.case_type ? `${c.case_type} ` : ''}{formatCaseNumber(c.case_number, c.case_year)} — {getCourtLabel(c.court_code || c.court_name)}{c.city ? `, ${c.city}` : ''}
+                              {c.case_type ? `${c.case_type} ` : ''}{formatCaseNumber(c.case_number, c.case_year)} — {c.court_name}{c.city ? `, ${c.city}` : ''}
                             </p>
                           </button>
                         ))}
@@ -1400,7 +1399,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           {selectedCase.case_type ? `${selectedCase.case_type} ` : ''}{formatCaseNumber(selectedCase.case_number, selectedCase.case_year)}
                         </p>
                         <p className="text-xs text-gray-600 mt-1">
-                          <span className="text-gray-400">Court:</span> {getCourtLabel(selectedCase.court_code || selectedCase.court_name)}
+                          <span className="text-gray-400">Court:</span> {selectedCase.court_name}
                           {selectedCase.city && <>, {selectedCase.city}</>}
                         </p>
                         <p className="text-xs text-gray-600 mt-0.5">

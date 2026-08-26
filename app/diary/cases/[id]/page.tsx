@@ -8,7 +8,6 @@ import { useDropzone } from 'react-dropzone'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { compressFile } from '@/lib/compress'
 import {
-  getCourtLabel,
   getCourtShortLabel,
   eCourtsDeepLink,
   formatCaseNumber,
@@ -175,7 +174,11 @@ function sanitizeFileNamePart(s: string): string {
 function buildDocFileName(caseData: CaseRecord, label: string, ext: string): string {
   const p1 = sanitizeFileNamePart(caseData.party_plaintiff) || 'Party1'
   const p2 = sanitizeFileNamePart(caseData.party_defendant) || 'Party2'
-  const courtTag = sanitizeFileNamePart(getCourtShortLabel(caseData.court_code || '') || caseData.court_name)
+  // getCourtShortLabel doesn't know about custom courts — for one, it just
+  // hands back the raw code (e.g. "CUSTOM_<uuid>") unchanged rather than
+  // failing, so check for that specifically and fall back to the real name.
+  const shortLabel = getCourtShortLabel(caseData.court_code || '')
+  const courtTag = sanitizeFileNamePart(shortLabel && !shortLabel.startsWith('CUSTOM_') ? shortLabel : caseData.court_name)
   const lbl = sanitizeFileNamePart(label) || 'Document'
   return `${p1}_${p2}(${courtTag})_${lbl}.${ext}`
 }
@@ -904,7 +907,7 @@ export default function CaseDetailPage() {
           </h1>
           <div className="flex flex-wrap items-center gap-3 mt-2">
             <span className="text-sm text-gray-600">
-              {getCourtLabel(caseData.court_code || caseData.court_name)}
+              {caseData.court_name}
             </span>
             <span className="text-gray-300">|</span>
             <span className="text-sm text-gray-600 font-mono">
@@ -1009,7 +1012,7 @@ export default function CaseDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
               <CompactField label="Next Date" value={formatDate(nextHearingDate)} />
               <CompactField label="Court Level" value={caseData.court_level === 'high_court' ? 'High Court' : 'District Court'} />
-              <CompactField label="Court" value={getCourtLabel(caseData.court_code || caseData.court_name)} />
+              <CompactField label="Court" value={caseData.court_name} />
               {caseData.hc_bench && <CompactField label="HC Bench" value={capitalize(caseData.hc_bench)} />}
               <CompactField label="Case Type" value={caseData.case_type} />
               <CompactField label="Case Number" value={formatCaseNumber(caseData.case_number, caseData.case_year)} />

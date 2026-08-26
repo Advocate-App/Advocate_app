@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getCourtLabel, eCourtsDeepLink, formatCaseNumber } from '@/lib/constants/courts'
+import { eCourtsDeepLink, formatCaseNumber } from '@/lib/constants/courts'
 import { fetchAllRows } from '@/lib/fetchAll'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -150,8 +150,8 @@ export default function CasesPage() {
 
       switch (sortKey) {
         case 'court_code':
-          aVal = a.court_code ? getCourtLabel(a.court_code) : a.court_name
-          bVal = b.court_code ? getCourtLabel(b.court_code) : b.court_name
+          aVal = a.court_name
+          bVal = b.court_name
           break
         case 'case_number':
           aVal = formatCaseNumber(a.case_number, a.case_year)
@@ -366,7 +366,7 @@ export default function CasesPage() {
                 <tbody className="divide-y divide-gray-100">
                   {paginated.map((c) => {
                     const eLink = eCourtsDeepLink(c.ecourts_cnr)
-                    const courtLabel = c.court_code ? getCourtLabel(c.court_code) : c.court_name
+                    const courtLabel = c.court_name
                     const title = c.full_title || `${c.party_plaintiff} vs ${c.party_defendant}`
                     return (
                       <tr
