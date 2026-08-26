@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, parseISO } from 'date-fns'
 import { Printer, Search } from 'lucide-react'
@@ -207,8 +207,10 @@ export default function FileListPage() {
   }
 
   // Group everything by city first, then by bucket within that city — so
-  // when printed, one city's cards all sit together and a new city starts
-  // on a fresh page instead of scattering cities across the same sheet.
+  // when printed, one city's cards all sit together in reading order. No
+  // forced page break between cities: a city with only a couple of files
+  // just shares the page with the next one instead of wasting a whole
+  // sheet on it.
   const byCity: Record<string, CaseRow[]> = {}
   for (const c of cases) {
     const city = cityFor(c)
@@ -228,6 +230,34 @@ export default function FileListPage() {
     return Object.keys(map)
       .sort((a, b) => bucketSortKey(a).localeCompare(bucketSortKey(b)))
       .map((name) => ({ name, rows: map[name] }))
+  }
+
+  // One flat list of city headings + bucket cards, in city order, all as
+  // direct children of the same grid/columns container — that's what lets
+  // print pack a small city's cards right after the previous city's
+  // instead of starting fresh.
+  const printCards: ReactNode[] = []
+  for (const city of cityNames) {
+    if (multiCity) {
+      printCards.push(
+        <div key={`city-${city}`} className="col-span-full text-sm font-bold mt-3 mb-1 first:mt-0 print:text-xs print:mt-0 print:mb-1.5 print:break-after-avoid" style={{ color: '#1e3a5f' }}>
+          {city}
+        </div>
+      )
+    }
+    for (const { name, rows } of bucketsFor(byCity[city])) {
+      printCards.push(
+        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border print:mb-[3mm] print:break-inside-avoid">
+          <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
+            <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
+            <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
+          </div>
+          <div className="p-4 print:p-2">
+            <BucketList cases={rows} />
+          </div>
+        </div>
+      )
+    }
   }
 
   return (
@@ -300,38 +330,15 @@ export default function FileListPage() {
                 </div>
               </div>
 
-              {/* One block per city — each starts its own printed page(s)
-                  so you can hand off one city's slips without cutting
-                  into another's. Inside each city, cards flow through
-                  print-columns (not a rigid grid) so a long bucket like
-                  Private MACT just keeps filling the same page instead of
-                  jumping to a whole fresh page and wasting what's left. */}
-              {cityNames.map((city, cityIdx) => (
-                <div key={city} className={cityIdx > 0 ? 'print:break-before-page' : undefined}>
-                  {multiCity && (
-                    <div className="text-sm font-bold mb-2 print:text-xs print:mb-1.5" style={{ color: '#1e3a5f' }}>
-                      {city}
-                    </div>
-                  )}
-                  {/* CSS columns (not a grid) for print — a long bucket like
-                      Private MACT just keeps flowing into the next column
-                      on the same page instead of the whole card jumping to
-                      a fresh page and wasting what's left of this one. */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
-                    {bucketsFor(byCity[city]).map(({ name, rows }) => (
-                      <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border print:mb-[3mm] print:break-inside-auto">
-                        <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
-                          <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
-                          <span className="text-xs text-blue-200 print:text-[10px]">({rows.length})</span>
-                        </div>
-                        <div className="p-4 print:p-2">
-                          <BucketList cases={rows} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              {/* One flowing grid/columns for everything — a bucket card like
+                  Private MACT never splits mid-list (break-inside-avoid), so
+                  it always reads as one clean block. But there's no forced
+                  page break between cities either, so a city with only a
+                  couple of files just shares the page with the next city's
+                  cards instead of wasting a whole sheet on it. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
+                {printCards}
+              </div>
 
               {/* Summary */}
               <div className="text-xs text-gray-400 text-right print:hidden">
