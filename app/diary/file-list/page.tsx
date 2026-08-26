@@ -112,7 +112,7 @@ function BucketList({ cases }: { cases: CaseRow[] }) {
   const singleCity = cities.length === 1
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 print:space-y-2">
       {cities.map((city) => {
         const byDate: Record<string, CaseRow[]> = {}
         for (const c of byCity[city]) {
@@ -127,19 +127,19 @@ function BucketList({ cases }: { cases: CaseRow[] }) {
                 point labelling it when everything in this bucket is from
                 the same place. */}
             {!singleCity && (
-              <div className="text-xs font-bold text-white uppercase tracking-wide mb-2 px-2 py-1 rounded inline-block" style={{ background: '#7c8a9a' }}>
+              <div className="text-xs font-bold text-white uppercase tracking-wide mb-2 px-2 py-1 rounded inline-block print:text-[9px] print:mb-1 print:px-1 print:py-0.5" style={{ background: '#7c8a9a' }}>
                 {city}
               </div>
             )}
-            <div className="space-y-3">
+            <div className="space-y-3 print:space-y-1.5">
               {dates.map((date) => (
                 <div key={date}>
-                  <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5">
+                  <div className="text-sm font-bold text-gray-700 underline underline-offset-2 mb-1.5 print:text-[10px] print:mb-1">
                     {fmtDate(date)}
                   </div>
-                  <ol className="space-y-1">
+                  <ol className="space-y-1 print:space-y-0.5">
                     {byDate[date].map((c) => (
-                      <li key={c.id} className="text-sm text-gray-800 leading-5">
+                      <li key={c.id} className="text-sm text-gray-800 leading-5 print:text-[10px] print:leading-tight">
                         {c.case_number && (
                           <span className="font-mono text-gray-500">{shortCaseNumber(c)} </span>
                         )}
@@ -301,14 +301,14 @@ export default function FileListPage() {
               </div>
 
               {/* One section per bucket: Private, Private MACT, each company */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-3 print:gap-3">
                 {bucketNames.map((name) => (
-                  <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start">
-                    <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2" style={{ background: '#1e3a5f' }}>
-                      <span className="text-sm font-bold text-white uppercase tracking-widest">{name}</span>
-                      <span className="text-xs text-blue-200">({buckets[name].length})</span>
+                  <div key={name} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden self-start print:rounded-md print:border">
+                    <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5" style={{ background: '#1e3a5f' }}>
+                      <span className="text-sm font-bold text-white uppercase tracking-widest print:text-xs">{name}</span>
+                      <span className="text-xs text-blue-200 print:text-[10px]">({buckets[name].length})</span>
                     </div>
-                    <div className="p-4">
+                    <div className="p-4 print:p-2">
                       <BucketList cases={buckets[name]} />
                     </div>
                   </div>
