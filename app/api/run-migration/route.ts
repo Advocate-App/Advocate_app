@@ -2,24 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Client } from 'pg'
 
 const MIGRATION_SQL = `
--- Migration 014: let any authenticated advocate read the advocates table
-DROP POLICY IF EXISTS "advocates_self" ON advocates;
-DROP POLICY IF EXISTS "advocates_read_all" ON advocates;
-DROP POLICY IF EXISTS "advocates_insert_own" ON advocates;
-DROP POLICY IF EXISTS "advocates_update_own" ON advocates;
-DROP POLICY IF EXISTS "advocates_delete_own" ON advocates;
+-- Migration 015: cases/hearings readable+writable by any authenticated
+-- advocate — "cases_own" only ever matched your own advocate_id, so a
+-- junior (who owns zero cases themselves) saw exactly zero cases at the
+-- database level no matter what the app asked for.
+DROP POLICY IF EXISTS "cases_own" ON cases;
+DROP POLICY IF EXISTS "cases_shared" ON cases;
+CREATE POLICY "cases_shared" ON cases
+  FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 
-CREATE POLICY "advocates_read_all" ON advocates
-  FOR SELECT USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "advocates_insert_own" ON advocates
-  FOR INSERT WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY "advocates_update_own" ON advocates
-  FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY "advocates_delete_own" ON advocates
-  FOR DELETE USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "hearings_own" ON hearings;
+DROP POLICY IF EXISTS "hearings_shared" ON hearings;
+CREATE POLICY "hearings_shared" ON hearings
+  FOR ALL USING (auth.uid() IS NOT NULL) WITH CHECK (auth.uid() IS NOT NULL);
 `
 
 export async function POST(req: NextRequest) {
@@ -59,7 +54,7 @@ export async function POST(req: NextRequest) {
     await client.connect()
     await client.query(MIGRATION_SQL)
     await client.end()
-    return NextResponse.json({ ok: true, message: 'Migration 014 applied successfully' })
+    return NextResponse.json({ ok: true, message: 'Migration 015 applied successfully' })
   } catch (err: unknown) {
     await client.end().catch(() => {})
     const msg = err instanceof Error ? err.message : String(err)
