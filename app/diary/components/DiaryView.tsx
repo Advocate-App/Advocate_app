@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -809,6 +809,155 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     return builtin || fallback
   }
 
+  // Stage / Next-date / Action cell content, extracted so the same
+  // per-hearing controls can be reused both for a normal row and stacked
+  // compactly inside a linked-cases group row (see the merged-row
+  // rendering below the table).
+  function renderStageCellContent(h: HearingWithCase) {
+    const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
+    if (editingStage === h.id) {
+      if (inlineCustomStageId === h.id) {
+        return (
+          <input
+            autoFocus
+            type="text"
+            value={inlineCustomStage}
+            onChange={(e) => setInlineCustomStage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && inlineCustomStage.trim()) {
+                saveStage(h.id, inlineCustomStage.trim())
+                setInlineCustomStageId(null)
+                setInlineCustomStage('')
+              }
+              if (e.key === 'Escape') {
+                setEditingStage(null)
+                setInlineCustomStageId(null)
+                setInlineCustomStage('')
+              }
+            }}
+            onBlur={() => { setEditingStage(null); setInlineCustomStageId(null); setInlineCustomStage('') }}
+            className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+            placeholder="Type stage…"
+          />
+        )
+      }
+      return (
+        <select
+          autoFocus
+          defaultValue={h.stage_on_date || ''}
+          onChange={(e) => {
+            if (e.target.value === 'Custom...') {
+              setInlineCustomStageId(h.id)
+              setInlineCustomStage('')
+            } else {
+              saveStage(h.id, e.target.value)
+            }
+          }}
+          onBlur={() => setEditingStage(null)}
+          className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+        >
+          <option value=""></option>
+          {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      )
+    }
+    return (
+      <button
+        onClick={() => setEditingStage(h.id)}
+        className="text-xs md:text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+        title={h.stage_on_date ? `${h.stage_on_date} — click to change` : 'Click to change stage'}
+      >
+        {h.stage_on_date ? stageAbbrev(h.stage_on_date) : <span className="text-gray-300">—</span>}
+      </button>
+    )
+  }
+
+  function renderNextDateButton(h: HearingWithCase) {
+    if (isFinalStage(h.stage_on_date)) return <span className="text-xs text-gray-300 italic">—</span>
+    return (
+      <button
+        onClick={() => setEditingNextDate(h.id)}
+        className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+        title={h.set_by_name ? `Set by ${h.set_by_name}` : 'Click to set next date'}
+      >
+        {formatDD_MM(h.next_hearing_date) || <span className="text-gray-300">—</span>}
+        {h.next_hearing_date && h.set_by_name && (
+          <span className="block text-[9px] font-sans text-gray-400 normal-case">by {h.set_by_name.split(' ')[0]}</span>
+        )}
+      </button>
+    )
+  }
+
+  function renderActionCellContent(h: HearingWithCase) {
+    const ecLink = eCourtsDeepLink(h.caseData.ecourts_cnr)
+    if (isFinalStage(h.stage_on_date)) {
+      if (commentHearingId === h.id) {
+        return (
+          <div className="flex items-center gap-1">
+            <input
+              autoFocus
+              type="text"
+              placeholder="Type action…"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+              className="flex-1 min-w-0 px-1.5 py-0.5 border border-emerald-300 rounded text-xs bg-white text-gray-900 focus:outline-none"
+            />
+            <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-emerald-600 disabled:opacity-50">✓</button>
+          </div>
+        )
+      }
+      if (h.outcome_notes) {
+        return (
+          <button
+            onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+            className="text-xs text-emerald-700 font-medium text-left w-full hover:text-emerald-900 truncate block"
+            title={h.outcome_notes}
+          >
+            ✓ {h.outcome_notes}
+          </button>
+        )
+      }
+      return (
+        <div className="flex flex-wrap gap-1">
+          {['Appeal', 'Execution', 'Order Copy', 'Done'].map(action => (
+            <button
+              key={action}
+              onClick={async () => {
+                const supabase = createClient()
+                await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
+                setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
+              }}
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
+            >
+              {action}
+            </button>
+          ))}
+          <button
+            onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
+            className="text-[10px] px-1.5 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100"
+          >+</button>
+        </div>
+      )
+    }
+    return (
+      <div className="flex items-center gap-0.5 justify-center">
+        <button
+          onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+          className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+          title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+        </button>
+        {ecLink && (
+          <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </div>
+    )
+  }
+
   // Filtered hearings for diary search
   const filteredHearings = diaryFilter.trim()
     ? hearings.filter(h =>
@@ -866,6 +1015,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     const groupSizeById = new Map<string, number>()
     const anchorIds = new Set<string>()
     const commonPartyById = new Map<string, { name: string; side: 'plaintiff' | 'defendant' }>()
+    const groupMembersByAnchor = new Map<string, HearingWithCase[]>()
     const seenRoot = new Set<string>()
     for (const h of list) {
       const root = find(h.case_id)
@@ -878,13 +1028,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         if (common) {
           for (const g of group) { groupSizeById.set(g.id, group.length); commonPartyById.set(g.id, common) }
           anchorIds.add(group[0].id)
+          groupMembersByAnchor.set(group[0].id, group)
         }
       }
     }
-    return { ordered, groupSizeById, anchorIds, commonPartyById }
+    return { ordered, groupSizeById, anchorIds, commonPartyById, groupMembersByAnchor }
   }
 
-  const { ordered: displayHearings, groupSizeById, anchorIds, commonPartyById } = buildDisplayHearings(filteredHearings, caseLinkPairs)
+  const { ordered: displayHearings, groupSizeById, anchorIds, commonPartyById, groupMembersByAnchor } = buildDisplayHearings(filteredHearings, caseLinkPairs)
 
   // Date display parts
   const monthName = format(selectedDate, 'MMMM').toUpperCase()
@@ -1177,14 +1328,187 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               </thead>
               <tbody>
                 {displayHearings.map((h) => {
+                  const groupSize = groupSizeById.get(h.id) || 1
+                  const isAnchor = anchorIds.has(h.id)
+
+                  // Non-anchor members of a linked-cases group are folded
+                  // into the anchor's single merged row below — nothing to
+                  // render for them here.
+                  if (groupSize > 1 && !isAnchor) return null
+
+                  // Linked cases sharing a common party (e.g. three
+                  // plaintiffs all suing "Vikram") get ONE compact row
+                  // instead of one full-height row each: the shared party
+                  // shows once, the other party's names run together
+                  // comma-separated (wrapping naturally, e.g. "Rahul,
+                  // Ganesh" then "Sehjal" on the next line), and anything
+                  // that differs per case (stage, next date, actions)
+                  // stacks as small aligned lines within the same cells.
+                  if (groupSize > 1 && isAnchor) {
+                    const group = groupMembersByAnchor.get(h.id) || [h]
+                    const common = commonPartyById.get(h.id)
+                    const anchorCourtCode = group[0].caseData.court_code || ''
+                    const anchorCourtBg = getCourtColor(anchorCourtCode)
+                    const sameCourt = group.every((g) => (g.caseData.court_code || '') === anchorCourtCode)
+
+                    return (
+                      <Fragment key={h.id}>
+                        <tr className="hover:bg-amber-50/20 transition-colors" style={{ borderLeft: '4px solid #f59e0b' }}>
+                          {/* Pre. */}
+                          <td className="border border-gray-200 px-2 py-1.5 text-center align-top">
+                            <div className="flex flex-col gap-1">
+                              {group.map((g) => (
+                                <div key={g.id} className="font-mono text-xs text-gray-600">
+                                  {g.purpose === 'Case Commenced' ? (
+                                    <span className="inline-block px-1 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">NEW</span>
+                                  ) : (
+                                    formatDD_MM(g.previous_hearing_date)
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* Court — shown once; linked cases are almost
+                              always in the same court/tribunal */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                            <span
+                              className="inline-block max-w-[60px] md:max-w-[130px] truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-sm font-semibold text-gray-700"
+                              style={{ background: anchorCourtBg }}
+                              title={courtShortLabel(anchorCourtCode, group[0].caseData.court_name)}
+                            >
+                              {courtShortLabel(anchorCourtCode, group[0].caseData.court_name)}
+                            </span>
+                            {!sameCourt && <div className="text-[9px] text-gray-400 mt-0.5">+ other courts</div>}
+                          </td>
+
+                          {/* Case No. */}
+                          <td className="border border-gray-200 px-2 py-1.5 text-center align-top">
+                            <div className="flex flex-col gap-1">
+                              {group.map((g) => (
+                                <Link
+                                  key={g.id}
+                                  href={`/diary/cases/${g.case_id}`}
+                                  className="block font-mono text-xs hover:underline"
+                                  style={{ color: '#1e3a5f' }}
+                                  title={formatCaseNumber(g.caseData.case_number, g.caseData.case_year)}
+                                >
+                                  {formatCaseNumber(g.caseData.case_number, g.caseData.case_year)}
+                                </Link>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* Party 1 — the shared party shows once; the
+                              other side's names run together and wrap
+                              naturally, e.g. "Rahul, Ganesh" / "Sehjal" */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-top max-w-[144px] bg-amber-50/30">
+                            {common?.side === 'plaintiff' ? (
+                              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }} title="Linked cases — same plaintiff">{common.name}</span>
+                            ) : (
+                              <div className="text-sm leading-snug">
+                                {group.map((g, i) => (
+                                  <span key={g.id}>
+                                    <Link href={`/diary/cases/${g.case_id}`} className="hover:underline font-medium" style={{ color: '#1e3a5f' }}>{g.caseData.party_plaintiff}</Link>
+                                    {i < group.length - 1 ? ', ' : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Party 2 — mirrors Party 1 */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-top max-w-[144px] bg-amber-50/30">
+                            {common?.side === 'defendant' ? (
+                              <span className="text-sm font-medium text-gray-700" title="Linked cases — same defendant">{common.name}</span>
+                            ) : (
+                              <div className="text-sm leading-snug text-gray-700">
+                                {group.map((g, i) => (
+                                  <span key={g.id}>
+                                    <Link href={`/diary/cases/${g.case_id}`} className="hover:underline hover:text-[#1e3a5f]">{g.caseData.party_defendant}</Link>
+                                    {i < group.length - 1 ? ', ' : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Stage — one compact line per linked case, still individually editable */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                            <div className="divide-y divide-gray-100">
+                              {group.map((g) => (
+                                <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
+                                  {renderStageCellContent(g)}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* Next Date — same, one line per linked case */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                            <div className="divide-y divide-gray-100">
+                              {group.map((g) => (
+                                <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
+                                  {renderNextDateButton(g)}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* Action */}
+                          <td className="border border-gray-200 px-2 py-1.5 print:hidden align-top">
+                            <div className="divide-y divide-gray-100">
+                              {group.map((g) => (
+                                <div key={g.id} className="py-1 first:pt-0 last:pb-0">
+                                  {renderActionCellContent(g)}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Inline comment editor/display for each linked case that has one open or saved */}
+                        {group.map((g) => (
+                          !isFinalStage(g.stage_on_date) && (g.outcome_notes || commentHearingId === g.id) && (
+                            <tr key={`cmt-${g.id}`}>
+                              <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
+                                {commentHearingId === g.id ? (
+                                  <div className="flex items-start gap-2">
+                                    <textarea
+                                      autoFocus
+                                      rows={2}
+                                      placeholder="Add a comment or note for this hearing…"
+                                      value={commentText}
+                                      onChange={(e) => setCommentText(e.target.value)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(g.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+                                      className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
+                                    />
+                                    <button onClick={() => saveComment(g.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                                      {commentSaving ? '…' : 'Save'}
+                                    </button>
+                                    <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => { setCommentHearingId(g.id); setCommentText(g.outcome_notes || '') }}
+                                    className="text-xs text-blue-700 text-left w-full hover:text-blue-900 whitespace-pre-wrap"
+                                  >
+                                    💬 {g.outcome_notes}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        ))}
+                      </Fragment>
+                    )
+                  }
+
                   const borderColor = rowBorderColor(h)
                   const courtCode = h.caseData.court_code || ''
                   const courtBg = getCourtColor(courtCode)
-                  const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
-                  const ecLink = eCourtsDeepLink(h.caseData.ecourts_cnr)
-                  const common = commonPartyById.get(h.id)
-                  const isAnchor = anchorIds.has(h.id)
-                  const groupSize = groupSizeById.get(h.id) || 1
 
                   return (
                     <>
@@ -1231,168 +1555,29 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </Link>
                         </td>
 
-                        {/* Party 1 — merged (rowSpan) across the group when
-                            the common linked-case party is the plaintiff */}
-                        {common?.side === 'plaintiff' ? (
-                          isAnchor && (
-                            <td rowSpan={groupSize} className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px] align-middle bg-amber-50/40" title="Linked cases — same plaintiff">
-                              <span className="truncate block" style={{ color: '#1e3a5f' }}>{common.name}</span>
-                            </td>
-                          )
-                        ) : (
-                          <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                            <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
-                          </td>
-                        )}
+                        {/* Party 1 */}
+                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
+                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
+                        </td>
 
-                        {/* Party 2 — merged (rowSpan) across the group when
-                            the common linked-case party is the defendant */}
-                        {common?.side === 'defendant' ? (
-                          isAnchor && (
-                            <td rowSpan={groupSize} className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px] align-middle bg-amber-50/40" title="Linked cases — same defendant">
-                              <span className="truncate block text-gray-700">{common.name}</span>
-                            </td>
-                          )
-                        ) : (
-                          <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                            <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
-                          </td>
-                        )}
+                        {/* Party 2 */}
+                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
+                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
+                        </td>
 
                         {/* Stage */}
                         <td className="border border-gray-200 px-2 py-2 text-center">
-                          {editingStage === h.id ? (
-                            inlineCustomStageId === h.id ? (
-                              <input
-                                autoFocus
-                                type="text"
-                                value={inlineCustomStage}
-                                onChange={(e) => setInlineCustomStage(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && inlineCustomStage.trim()) {
-                                    saveStage(h.id, inlineCustomStage.trim())
-                                    setInlineCustomStageId(null)
-                                    setInlineCustomStage('')
-                                  }
-                                  if (e.key === 'Escape') {
-                                    setEditingStage(null)
-                                    setInlineCustomStageId(null)
-                                    setInlineCustomStage('')
-                                  }
-                                }}
-                                onBlur={() => { setEditingStage(null); setInlineCustomStageId(null); setInlineCustomStage('') }}
-                                className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
-                                placeholder="Type stage…"
-                              />
-                            ) : (
-                              <select
-                                autoFocus
-                                defaultValue={h.stage_on_date || ''}
-                                onChange={(e) => {
-                                  if (e.target.value === 'Custom...') {
-                                    setInlineCustomStageId(h.id)
-                                    setInlineCustomStage('')
-                                  } else {
-                                    saveStage(h.id, e.target.value)
-                                  }
-                                }}
-                                onBlur={() => setEditingStage(null)}
-                                className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
-                              >
-                                <option value=""></option>
-                                {stages.map((s) => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                            )
-                          ) : (
-                            <button
-                              onClick={() => setEditingStage(h.id)}
-                              className="text-xs md:text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
-                              title={h.stage_on_date ? `${h.stage_on_date} — click to change` : 'Click to change stage'}
-                            >
-                              {h.stage_on_date ? stageAbbrev(h.stage_on_date) : <span className="text-gray-300">—</span>}
-                            </button>
-                          )}
+                          {renderStageCellContent(h)}
                         </td>
 
                         {/* Next Date — hidden when stage is final */}
                         <td className="border border-gray-200 px-2 py-2 text-center">
-                          {isFinalStage(h.stage_on_date) ? (
-                            <span className="text-xs text-gray-300 italic">—</span>
-                          ) : (
-                            <button
-                              onClick={() => setEditingNextDate(h.id)}
-                              className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
-                              title={h.set_by_name ? `Set by ${h.set_by_name}` : 'Click to set next date'}
-                            >
-                              {formatDD_MM(h.next_hearing_date) || <span className="text-gray-300">—</span>}
-                              {h.next_hearing_date && h.set_by_name && (
-                                <span className="block text-[9px] font-sans text-gray-400 normal-case">by {h.set_by_name.split(' ')[0]}</span>
-                              )}
-                            </button>
-                          )}
+                          {renderNextDateButton(h)}
                         </td>
 
                         {/* Action column — final-stage quick actions, or the everyday comment/eCourts icons */}
                         <td className="border border-gray-200 px-2 py-2 print:hidden">
-                          {isFinalStage(h.stage_on_date) ? (
-                            commentHearingId === h.id ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  autoFocus
-                                  type="text"
-                                  placeholder="Type action…"
-                                  value={commentText}
-                                  onChange={(e) => setCommentText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                  className="flex-1 min-w-0 px-1.5 py-0.5 border border-emerald-300 rounded text-xs bg-white text-gray-900 focus:outline-none"
-                                />
-                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-emerald-600 disabled:opacity-50">✓</button>
-                              </div>
-                            ) : h.outcome_notes ? (
-                              <button
-                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                                className="text-xs text-emerald-700 font-medium text-left w-full hover:text-emerald-900 truncate block"
-                                title={h.outcome_notes}
-                              >
-                                ✓ {h.outcome_notes}
-                              </button>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {['Appeal', 'Execution', 'Order Copy', 'Done'].map(action => (
-                                  <button
-                                    key={action}
-                                    onClick={async () => {
-                                      const supabase = createClient()
-                                      await supabase.from('hearings').update({ outcome_notes: action }).eq('id', h.id)
-                                      setHearings(prev => prev.map(x => x.id === h.id ? { ...x, outcome_notes: action } : x))
-                                    }}
-                                    className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
-                                  >
-                                    {action}
-                                  </button>
-                                ))}
-                                <button
-                                  onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
-                                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-gray-300 text-gray-500 hover:bg-gray-100"
-                                >+</button>
-                              </div>
-                            )
-                          ) : (
-                            <div className="flex items-center gap-0.5 justify-center">
-                              <button
-                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                                className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-                                title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                              </button>
-                              {ecLink && (
-                                <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </a>
-                              )}
-                            </div>
-                          )}
+                          {renderActionCellContent(h)}
                         </td>
                       </tr>
 
