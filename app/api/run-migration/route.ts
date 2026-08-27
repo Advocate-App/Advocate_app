@@ -2,19 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Client } from 'pg'
 
 const MIGRATION_SQL = `
--- Migration 013: OTP confirmation before permanently deleting a case
-CREATE TABLE IF NOT EXISTS case_delete_otps (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id     UUID REFERENCES cases(id) ON DELETE CASCADE NOT NULL,
-  code        TEXT NOT NULL,
-  expires_at  TIMESTAMPTZ NOT NULL,
-  used        BOOLEAN NOT NULL DEFAULT false,
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
+-- Migration 014: let any authenticated advocate read the advocates table
+DROP POLICY IF EXISTS "advocates_self" ON advocates;
+DROP POLICY IF EXISTS "advocates_read_all" ON advocates;
+DROP POLICY IF EXISTS "advocates_insert_own" ON advocates;
+DROP POLICY IF EXISTS "advocates_update_own" ON advocates;
+DROP POLICY IF EXISTS "advocates_delete_own" ON advocates;
 
-CREATE INDEX IF NOT EXISTS idx_case_delete_otps_case ON case_delete_otps(case_id);
+CREATE POLICY "advocates_read_all" ON advocates
+  FOR SELECT USING (auth.uid() IS NOT NULL);
 
-ALTER TABLE case_delete_otps ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "advocates_insert_own" ON advocates
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "advocates_update_own" ON advocates
+  FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "advocates_delete_own" ON advocates
+  FOR DELETE USING (user_id = auth.uid());
 `
 
 export async function POST(req: NextRequest) {
@@ -54,7 +59,7 @@ export async function POST(req: NextRequest) {
     await client.connect()
     await client.query(MIGRATION_SQL)
     await client.end()
-    return NextResponse.json({ ok: true, message: 'Migration 013 applied successfully' })
+    return NextResponse.json({ ok: true, message: 'Migration 014 applied successfully' })
   } catch (err: unknown) {
     await client.end().catch(() => {})
     const msg = err instanceof Error ? err.message : String(err)

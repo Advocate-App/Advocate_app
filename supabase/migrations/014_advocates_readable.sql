@@ -8,6 +8,10 @@
 -- ================================================================
 
 DROP POLICY IF EXISTS "advocates_self" ON advocates;
+DROP POLICY IF EXISTS "advocates_read_all" ON advocates;
+DROP POLICY IF EXISTS "advocates_insert_own" ON advocates;
+DROP POLICY IF EXISTS "advocates_update_own" ON advocates;
+DROP POLICY IF EXISTS "advocates_delete_own" ON advocates;
 
 CREATE POLICY "advocates_read_all" ON advocates
   FOR SELECT USING (auth.uid() IS NOT NULL);
