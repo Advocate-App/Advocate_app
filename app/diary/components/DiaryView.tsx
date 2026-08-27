@@ -1526,15 +1526,17 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {cases.map((h) => (
                     <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '2mm', flexWrap: 'wrap' }}>
+                      {/* Fixed court + case-number prefix, then party names +
+                          stage in a single line that shrinks and truncates
+                          with an ellipsis rather than wrapping to a second
+                          line — a slip entry should always be one line. */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', flexWrap: 'nowrap', overflow: 'hidden' }}>
                         <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
-                        <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: '13px', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
-                        <span style={{ color: '#bbb', flexShrink: 0 }}>–</span>
-                        <span style={{ color: '#222' }}>{slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}</span>
-                        {h.caseData.case_stage && (
-                          <span style={{ fontSize: '10px', color: '#888' }}>({stageAbbrev(h.caseData.case_stage)})</span>
-                        )}
+                        <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#555', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
+                        <span style={{ color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}
+                          {h.caseData.case_stage && <span style={{ fontSize: '10px', color: '#888' }}> ({stageAbbrev(h.caseData.case_stage)})</span>}
+                        </span>
                       </div>
                     </li>
                   ))}

@@ -204,7 +204,10 @@ function buildDocFileName(caseData: CaseRecord, label: string, ext: string): str
   const shortLabel = getCourtShortLabel(caseData.court_code || '')
   const courtTag = sanitizeFileNamePart(shortLabel && !shortLabel.startsWith('CUSTOM_') ? shortLabel : caseData.court_name)
   const lbl = sanitizeFileNamePart(label) || 'Document'
-  return `${p1}_${p2}(${courtTag})_${lbl}.${ext}`
+  // The label you actually typed goes first — file lists elsewhere in the
+  // app truncate long names from the right, so anything placed at the end
+  // was getting cut off and hidden behind "...".
+  return `${lbl}_${p1}_${p2}(${courtTag}).${ext}`
 }
 
 function hearingBorderColor(hearing: Hearing): string {
@@ -261,6 +264,28 @@ export default function CaseDetailPage() {
   const [driveDeleteWarning, setDriveDeleteWarning] = useState<string | null>(null)
   const [viewingDoc, setViewingDoc] = useState<CaseDocument | null>(null)
   const [viewingUrl, setViewingUrl] = useState<string | null>(null)
+
+  // Opening the viewer pushes a throwaway history entry, so the browser's
+  // own back button just closes the viewer (landing you back on this same
+  // Documents list to check another file) instead of leaving the case
+  // page entirely. Only push once per "viewer session" — switching to a
+  // different document while it's already open shouldn't stack up extra
+  // entries you'd have to back through one by one.
+  const viewingDocRef = useRef<CaseDocument | null>(null)
+  useEffect(() => { viewingDocRef.current = viewingDoc }, [viewingDoc])
+  useEffect(() => {
+    function handlePopState() {
+      if (viewingDocRef.current) { setViewingDoc(null); setViewingUrl(null) }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+  function closeViewer() {
+    // Pops the history entry pushed on open, which triggers the popstate
+    // handler above to actually clear the state — keeps the X button and
+    // the browser back button behaving identically.
+    window.history.back()
+  }
 
   // Google Drive link state
   const [driveUrl, setDriveUrl] = useState('')
@@ -751,11 +776,13 @@ export default function CaseDetailPage() {
   // download or off to Drive's own site — which isn't what you usually
   // want when you just want to glance at a document.
   async function openViewer(doc: CaseDocument) {
+    const alreadyOpen = !!viewingDocRef.current
     if (doc.source === 'drive_link' && doc.external_url) {
       const fileId = extractDriveFileId(doc.external_url)
       if (!fileId) { window.open(doc.external_url, '_blank'); return } // couldn't parse it — fall back to opening it directly
       setViewingDoc(doc)
       setViewingUrl(`https://drive.google.com/file/d/${fileId}/preview`)
+      if (!alreadyOpen) window.history.pushState({ docViewer: true }, '', window.location.href)
       return
     }
     if (!doc.storage_path) return
@@ -766,6 +793,7 @@ export default function CaseDetailPage() {
     if (data?.signedUrl) {
       setViewingDoc(doc)
       setViewingUrl(data.signedUrl)
+      if (!alreadyOpen) window.history.pushState({ docViewer: true }, '', window.location.href)
     }
   }
 
@@ -2107,7 +2135,7 @@ export default function CaseDetailPage() {
                 )}
               </button>
               <button
-                onClick={() => { setViewingDoc(null); setViewingUrl(null) }}
+                onClick={closeViewer}
                 className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
                 title="Close"
               >
