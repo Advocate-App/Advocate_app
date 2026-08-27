@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { User, Send, Users, Building2, ChevronRight } from 'lucide-react'
+import { User, Send, Users, Building2, Briefcase, ChevronRight } from 'lucide-react'
 
 const MORE_ITEMS = [
   { href: '/diary/profile', label: 'Profile', description: 'Your name, enrollment, chamber details.', icon: User },
   { href: '/diary/empanelment', label: 'Empanelment', description: 'Outreach to organisations for empanelment.', icon: Send },
   { href: '/diary/clients', label: 'My Clients', description: 'Everyone you represent, in one list.', icon: Users },
   { href: '/diary/courts', label: 'My Courts', description: 'Courts you appear in, and their short names.', icon: Building2 },
+  { href: '/diary/more/companies', label: 'Company Cases', description: 'Pick a company, see its cases — filter, print, export.', icon: Briefcase },
 ]
 
 export default function MorePage() {
