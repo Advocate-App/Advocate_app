@@ -7,8 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import { useDropzone } from 'react-dropzone'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { compressFile } from '@/lib/compress'
+import { buildDocFileName } from '@/lib/docNaming'
 import {
-  getCourtShortLabel,
   eCourtsDeepLink,
   formatCaseNumber,
   DISTRICT_STAGES,
@@ -188,27 +188,6 @@ function capitalize(s: string | null): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
-// Builds a human-readable file name for an uploaded document, e.g.
-// "Ram_Laxman(NI-1)_Petition.pdf" — so a downloaded file makes sense on
-// sight (which case, which court, what it is) instead of whatever name
-// the phone's camera/scanner app gave it.
-function sanitizeFileNamePart(s: string): string {
-  return s.trim().replace(/[/\\:*?"<>|]/g, '').replace(/\s+/g, ' ').slice(0, 60)
-}
-function buildDocFileName(caseData: CaseRecord, label: string, ext: string): string {
-  const p1 = sanitizeFileNamePart(caseData.party_plaintiff) || 'Party1'
-  const p2 = sanitizeFileNamePart(caseData.party_defendant) || 'Party2'
-  // getCourtShortLabel doesn't know about custom courts — for one, it just
-  // hands back the raw code (e.g. "CUSTOM_<uuid>") unchanged rather than
-  // failing, so check for that specifically and fall back to the real name.
-  const shortLabel = getCourtShortLabel(caseData.court_code || '')
-  const courtTag = sanitizeFileNamePart(shortLabel && !shortLabel.startsWith('CUSTOM_') ? shortLabel : caseData.court_name)
-  const lbl = sanitizeFileNamePart(label) || 'Document'
-  // The label you actually typed goes first — file lists elsewhere in the
-  // app truncate long names from the right, so anything placed at the end
-  // was getting cut off and hidden behind "...".
-  return `${lbl}_${p1}_${p2}(${courtTag}).${ext}`
-}
 
 function hearingBorderColor(hearing: Hearing): string {
   if (hearing.happened) return '#22c55e'
