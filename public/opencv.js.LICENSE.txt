@@ -1,3 +1,0 @@
-This file (opencv.js) is the official OpenCV.js build distributed by
-opencv.org at https://docs.opencv.org/4.x/opencv.js — OpenCV is licensed
-under the Apache License 2.0. See https://opencv.org/license/ for details.
