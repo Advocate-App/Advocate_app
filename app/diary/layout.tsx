@@ -17,23 +17,28 @@ import {
   CheckSquare,
   Search,
   MoreHorizontal,
+  Building2,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/diary', label: "Today's Diary", icon: CalendarDays },
   { href: '/diary/find', label: 'Find Case', icon: Search },
   { href: '/diary/pending', label: 'Pending Dates', icon: Clock },
-  { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
+  { href: '/diary/copying', label: 'Copying', icon: Copy },
   { href: '/diary/closed', label: 'Closed Cases', icon: CheckSquare },
   { href: '/diary/search', label: 'All Cases', icon: Briefcase },
-  { href: '/diary/copying', label: 'Copying', icon: Copy },
+  { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
+  { href: '/diary/more/companies', label: 'Company Cases', icon: Building2 },
   { href: '/diary/more', label: 'More', icon: MoreHorizontal },
 ]
 
 // Profile, Empanelment, My Clients, My Courts all now live inside the
 // single "More" hub page, so the sidebar highlights that entry while
-// you're on any of them, not just on /diary/more itself.
+// you're on any of them, not just on /diary/more itself. Company Cases
+// has its own direct nav entry now, so it's excluded here — otherwise
+// both it and "More" would light up at once.
 const MORE_PREFIXES = ['/diary/more', '/diary/profile', '/diary/empanelment', '/diary/clients', '/diary/courts']
+const MORE_EXCLUDE_PREFIX = '/diary/more/companies'
 
 // Junior advocates only get the diary + case lookup — everything else
 // (client lists, courts, empanelment, filters/reports, editing) is off
@@ -140,7 +145,7 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
         <nav className="p-4 space-y-1">
           {visibleNavItems.map((item) => {
             const isActive = item.href === '/diary/more'
-              ? MORE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+              ? !pathname.startsWith(MORE_EXCLUDE_PREFIX) && MORE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
               : pathname === item.href || (item.href !== '/diary' && pathname.startsWith(item.href))
             const Icon = item.icon
             return (
