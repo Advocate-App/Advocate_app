@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import UpdateBanner from './UpdateBanner'
 import {
   CalendarDays,
   Briefcase,
@@ -74,10 +75,28 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
           setAdvocateName(user.email || '')
           setRole('advocate')
         }
+      } else {
+        // No session (expired/invalid) — used to just sit here silently
+        // with nothing loaded, which is exactly the "app doesn't load,
+        // have to log out and back in manually" complaint. Send straight
+        // to login instead of leaving a blank shell.
+        router.replace('/login')
       }
     }
     loadProfile()
-  }, [])
+
+    // A session that goes bad *while* the app is open (expired refresh
+    // token, signed out in another tab) used to leave everything quietly
+    // broken too — this catches that live instead of only checking once
+    // on load.
+    const supabase = createClient()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || (!session && event !== 'INITIAL_SESSION')) {
+        router.replace('/login')
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [router])
 
   // Bounce juniors out of anything outside their allowed pages
   useEffect(() => {
@@ -173,6 +192,7 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
           {children}
         </main>
       </div>
+      <UpdateBanner />
     </div>
   )
 }
