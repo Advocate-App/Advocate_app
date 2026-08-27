@@ -8,6 +8,7 @@ import { useDropzone } from 'react-dropzone'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { compressFile } from '@/lib/compress'
 import { buildDocFileName } from '@/lib/docNaming'
+import { cityFor } from '@/lib/cityFor'
 import {
   eCourtsDeepLink,
   formatCaseNumber,
@@ -41,6 +42,7 @@ interface CaseRecord {
   court_level: string
   court_name: string
   court_code: string | null
+  city: string | null
   case_number: string
   case_year: number | null
   case_type: string | null
@@ -1040,15 +1042,15 @@ export default function CaseDetailPage() {
   // Last Date / Next Date for the Overview tab — derived from the actual
   // hearing history rather than a stored field, so it's always accurate.
   const todayStr = format(new Date(), 'yyyy-MM-dd')
-  const lastHearingDate = hearings
-    .map((h) => h.hearing_date)
-    .filter((d) => d <= todayStr)
-    .sort()
-    .at(-1) || null
   const nextHearingDate = hearings
     .map((h) => h.hearing_date)
     .filter((d) => d > todayStr)
     .sort()[0] || null
+  // Header badge always shows the latest date on record, whichever
+  // direction it falls — a freshly-added future date should show up
+  // immediately instead of being hidden behind a past-only "Last date".
+  const latestHearingDate = hearings.map((h) => h.hearing_date).sort().at(-1) || null
+  const latestHearingLabel = latestHearingDate && latestHearingDate > todayStr ? 'Next date' : 'Last date'
 
   return (
     <div className="max-w-5xl">
@@ -1087,11 +1089,11 @@ export default function CaseDetailPage() {
             >
               {capitalize(caseData.status)}
             </span>
-            {lastHearingDate && (
+            {latestHearingDate && (
               <>
                 <span className="text-gray-300">|</span>
                 <span className="text-sm text-gray-600">
-                  Last date: <span className="font-medium text-gray-800">{formatDate(lastHearingDate)}</span>
+                  {latestHearingLabel}: <span className="font-medium text-gray-800">{formatDate(latestHearingDate)}</span>
                 </span>
               </>
             )}
@@ -1216,6 +1218,7 @@ export default function CaseDetailPage() {
               <CompactField label="Next Date" value={formatDate(nextHearingDate)} />
               <CompactField label="Court Level" value={caseData.court_level === 'high_court' ? 'High Court' : 'District Court'} />
               <CompactField label="Court" value={caseData.court_name} />
+              <CompactField label="Location" value={cityFor(caseData.court_code, caseData.city)} />
               {caseData.hc_bench && <CompactField label="HC Bench" value={capitalize(caseData.hc_bench)} />}
               <CompactField label="Case Type" value={caseData.case_type} />
               <CompactField label="Case Number" value={formatCaseNumber(caseData.case_number, caseData.case_year)} />
@@ -1403,16 +1406,16 @@ export default function CaseDetailPage() {
             ) : hearings.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">No hearings recorded yet.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {hearings.map((h) => (
                   <div
                     key={h.id}
-                    className="bg-gray-50 border border-gray-200 rounded-lg p-3 relative"
+                    className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 relative"
                     style={{ borderLeftWidth: '4px', borderLeftColor: hearingBorderColor(h) }}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-gray-800">
                             {formatDate(h.hearing_date)}
                           </span>
@@ -1426,47 +1429,35 @@ export default function CaseDetailPage() {
                               Done
                             </span>
                           )}
+                          {h.purpose && <span className="text-xs text-gray-500">· {h.purpose}</span>}
+                          {h.next_hearing_date && (
+                            <span className="text-xs text-gray-500">· Next: {formatDate(h.next_hearing_date)}</span>
+                          )}
                         </div>
-                        {h.purpose && (
-                          <p className="text-sm text-gray-600">
-                            <span className="text-gray-400">Purpose:</span> {h.purpose}
-                          </p>
-                        )}
-                        {h.appearing_advocate_name && (
-                          <p className="text-sm text-gray-600">
-                            <span className="text-gray-400">Appeared by:</span> {h.appearing_advocate_name}
-                          </p>
-                        )}
-                        {h.next_hearing_date && (
-                          <p className="text-sm text-gray-600">
-                            <span className="text-gray-400">Next date:</span> {formatDate(h.next_hearing_date)}
-                            {h.set_by_name && <span className="text-gray-400"> — set by {h.set_by_name}</span>}
-                          </p>
-                        )}
                         {h.outcome_notes && (
-                          <p className="text-sm text-gray-500 mt-1 italic">{h.outcome_notes}</p>
+                          <p className="text-xs text-gray-500 mt-0.5 italic">{h.outcome_notes}</p>
                         )}
                         {h.adjournment_reason && (
-                          <p className="text-sm text-amber-600 mt-1">
+                          <p className="text-xs text-amber-600 mt-0.5">
                             Adjournment: {h.adjournment_reason}
                           </p>
                         )}
                       </div>
                       {!readOnly && (
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           <button
                             onClick={() => startEditHearing(h)}
-                            className="p-1.5 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
+                            className="p-1 rounded-md hover:bg-gray-200 text-gray-500 transition-colors"
                             title="Edit"
                           >
-                            <Pencil className="w-4 h-4" />
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => deleteHearing(h.id)}
-                            className="p-1.5 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
+                            className="p-1 rounded-md hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
                             title="Delete"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       )}
