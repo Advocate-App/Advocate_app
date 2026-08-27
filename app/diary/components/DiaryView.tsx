@@ -1573,18 +1573,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             )}
                           </td>
 
-                          {/* Action — one case's controls next to another's,
-                              in a single compact line (wrapping only if a
-                              comment box is open), not stacked into
-                              separate rows like before */}
+                          {/* Action — one control for the whole group
+                              (the shared "comment" icon applies to the
+                              lead case; open any linked case's own page
+                              for a case-specific note), not one button
+                              per linked case */}
                           <td className="border border-gray-200 px-2 py-1.5 print:hidden align-middle">
-                            <div className="flex flex-wrap items-center justify-center gap-1.5">
-                              {group.map((g) => (
-                                <div key={g.id}>
-                                  {renderActionCellContent(g)}
-                                </div>
-                              ))}
-                            </div>
+                            {renderActionCellContent(group[0])}
                           </td>
                         </tr>
 
