@@ -3,12 +3,15 @@
 /**
  * In-app document scanner — camera capture, auto edge-detection + crop
  * (OpenCV.js, loaded lazily only on this page since it's a ~8MB asset),
- * multi-page collection assembled into one PDF, then the same
- * compress → upload pipeline the case detail page's file picker uses.
+ * a "magic" enhance pass, multi-page collection assembled into one PDF,
+ * then the same compress → upload pipeline the case detail page's file
+ * picker uses.
  *
- * Flow: Capture (camera or file picker) → Crop (auto-detected corners,
- * draggable to adjust) → repeat for more pages → pick a case + name it →
- * Upload (with a Download button too, before or instead of uploading).
+ * Flow: Capture keeps firing continuously (camera or file picker) — each
+ * shot is auto-cropped + enhanced right away and added as a thumbnail,
+ * no per-photo confirm step blocking the next one. Tap a thumbnail
+ * afterward to fix its crop if the auto-detect got it wrong. Then pick a
+ * case, name it, and upload (with a Download button too).
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
@@ -16,7 +19,7 @@ import { createClient } from '@/lib/supabase/client'
 import { compressFile } from '@/lib/compress'
 import { buildDocFileName, type CaseForNaming } from '@/lib/docNaming'
 import { formatCaseNumber } from '@/lib/constants/courts'
-import { Camera, Upload, Download, X, Check, RotateCcw, Loader2, ImagePlus, Search, ArrowLeft } from 'lucide-react'
+import { Camera, Upload, Download, X, Check, RotateCcw, Loader2, ImagePlus, Search, ArrowLeft, Sparkles, Pencil } from 'lucide-react'
 
 // The opencv.js global — typed loosely since its API surface is huge and
 // this file only touches a handful of functions.
@@ -29,7 +32,15 @@ declare global {
 }
 
 interface Point { x: number; y: number }
-interface ScannedPage { id: string; canvas: HTMLCanvasElement }
+type EnhanceMode = 'color' | 'bw' | 'off'
+
+interface ScannedPage {
+  id: string
+  rawCanvas: HTMLCanvasElement // untouched capture — kept so a page can be re-cropped later
+  corners: [Point, Point, Point, Point] | null // null while still waiting on opencv to load
+  processedCanvas: HTMLCanvasElement // cropped + enhanced — what actually gets used
+  pending: boolean // captured before opencv finished loading; auto-reprocessed once it does
+}
 
 interface CaseResult extends CaseForNaming {
   id: string
@@ -38,7 +49,7 @@ interface CaseResult extends CaseForNaming {
   city: string | null
 }
 
-type Step = 'capture' | 'crop' | 'details' | 'uploading' | 'done'
+type Step = 'capture' | 'editCrop' | 'details' | 'uploading' | 'done'
 
 function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
@@ -52,6 +63,16 @@ function orderCorners(pts: Point[]): [Point, Point, Point, Point] {
   const tr = pts[diffs.indexOf(Math.max(...diffs))]
   const bl = pts[diffs.indexOf(Math.min(...diffs))]
   return [tl, tr, br, bl]
+}
+
+function fullFrameCorners(canvas: HTMLCanvasElement): [Point, Point, Point, Point] {
+  const inset = Math.round(Math.min(canvas.width, canvas.height) * 0.03)
+  return [
+    { x: inset, y: inset },
+    { x: canvas.width - inset, y: inset },
+    { x: canvas.width - inset, y: canvas.height - inset },
+    { x: inset, y: canvas.height - inset },
+  ]
 }
 
 /** Finds the document's 4 corners via edge detection; returns null (caller
@@ -70,32 +91,42 @@ function detectDocumentCorners(cv: CVNamespace, canvas: HTMLCanvasElement): [Poi
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0)
-    cv.Canny(blurred, edged, 75, 200)
-    cv.dilate(edged, dilated, kernel)
-    cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-
+    // A fixed 75/200 Canny threshold only works for well-lit, high-contrast
+    // shots — real phone photos vary a lot, so try a couple of threshold
+    // pairs and keep whichever finds the largest plausible quadrilateral.
+    const thresholdPairs: [number, number][] = [[75, 200], [30, 100], [50, 150]]
     const imgArea = src.rows * src.cols
     let bestArea = 0
-    for (let i = 0; i < contours.size(); i++) {
-      const cnt = contours.get(i)
-      const peri = cv.arcLength(cnt, true)
-      const approx = new cv.Mat()
-      cv.approxPolyDP(cnt, approx, 0.02 * peri, true)
-      if (approx.rows === 4) {
-        const area = cv.contourArea(approx)
-        if (area > bestArea && area > imgArea * 0.15) {
-          bestArea = area
-          const pts: Point[] = []
-          for (let j = 0; j < 4; j++) pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })
-          bestPoints = pts
+
+    for (const [t1, t2] of thresholdPairs) {
+      cv.Canny(blurred, edged, t1, t2)
+      cv.dilate(edged, dilated, kernel)
+      cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+
+      for (let i = 0; i < contours.size(); i++) {
+        const cnt = contours.get(i)
+        const peri = cv.arcLength(cnt, true)
+        const approx = new cv.Mat()
+        cv.approxPolyDP(cnt, approx, 0.02 * peri, true)
+        if (approx.rows === 4) {
+          const area = cv.contourArea(approx)
+          // Anything under ~12% of the frame is more likely a stray edge
+          // (a shadow, a table pattern) than the actual document.
+          if (area > bestArea && area > imgArea * 0.12) {
+            bestArea = area
+            const pts: Point[] = []
+            for (let j = 0; j < 4; j++) pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })
+            bestPoints = pts
+          }
         }
+        approx.delete()
+        cnt.delete()
       }
-      approx.delete()
-      cnt.delete()
+      contours.delete()
     }
   } finally {
     src.delete(); gray.delete(); blurred.delete(); edged.delete(); dilated.delete()
-    kernel.delete(); contours.delete(); hierarchy.delete()
+    kernel.delete(); hierarchy.delete()
   }
 
   return bestPoints ? orderCorners(bestPoints) : null
@@ -105,8 +136,8 @@ function detectDocumentCorners(cv: CVNamespace, canvas: HTMLCanvasElement): [Poi
  *  by `corners` (perspective transform), returning a fresh canvas. */
 function warpToCorners(cv: CVNamespace, canvas: HTMLCanvasElement, corners: [Point, Point, Point, Point]): HTMLCanvasElement {
   const [tl, tr, br, bl] = corners
-  const maxWidth = Math.round(Math.max(dist(tl, tr), dist(bl, br)))
-  const maxHeight = Math.round(Math.max(dist(tl, bl), dist(tr, br)))
+  const maxWidth = Math.max(1, Math.round(Math.max(dist(tl, tr), dist(bl, br))))
+  const maxHeight = Math.max(1, Math.round(Math.max(dist(tl, bl), dist(tr, br))))
 
   const src = cv.imread(canvas)
   const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y])
@@ -127,23 +158,56 @@ function warpToCorners(cv: CVNamespace, canvas: HTMLCanvasElement, corners: [Poi
   return out
 }
 
+/** The "magic" pass real scanner apps apply after cropping — boosts
+ *  contrast/brightness so the page reads like a clean scan instead of a
+ *  photo, or (bw mode) turns it into crisp black text on white. */
+function enhanceCanvas(cv: CVNamespace, canvas: HTMLCanvasElement, mode: EnhanceMode): HTMLCanvasElement {
+  if (mode === 'off') return canvas
+  const src = cv.imread(canvas)
+  const out = document.createElement('canvas')
+  out.width = canvas.width
+  out.height = canvas.height
+  try {
+    if (mode === 'bw') {
+      const gray = new cv.Mat()
+      const thresh = new cv.Mat()
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY)
+      cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 25, 12)
+      cv.imshow(out, thresh)
+      gray.delete(); thresh.delete()
+    } else {
+      const boosted = new cv.Mat()
+      // alpha = contrast, beta = brightness — simple, robust, no exotic
+      // API surface that might be missing from a given opencv.js build.
+      cv.convertScaleAbs(src, boosted, 1.25, 12)
+      cv.imshow(out, boosted)
+      boosted.delete()
+    }
+  } finally {
+    src.delete()
+  }
+  return out
+}
+
 export default function ScanClient() {
   const router = useRouter()
   const [step, setStep] = useState<Step>('capture')
   const [pages, setPages] = useState<ScannedPage[]>([])
+  const [enhanceMode, setEnhanceMode] = useState<EnhanceMode>('color')
 
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [justCaptured, setJustCaptured] = useState(false)
 
   // OpenCV
   const [cvReady, setCvReady] = useState(false)
   const [cvLoadFailed, setCvLoadFailed] = useState(false)
 
-  // Crop step
-  const [rawCanvas, setRawCanvas] = useState<HTMLCanvasElement | null>(null)
+  // Edit-crop step (re-cropping an already-captured page)
+  const [editingPageId, setEditingPageId] = useState<string | null>(null)
   const [corners, setCorners] = useState<[Point, Point, Point, Point] | null>(null)
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 })
   const imgWrapRef = useRef<HTMLDivElement>(null)
@@ -180,21 +244,46 @@ export default function ScanClient() {
     return () => { document.body.removeChild(script) }
   }, [])
 
-  // ── Camera ──
+  // A page captured before opencv finished loading went in un-cropped —
+  // catch it up automatically the moment detection becomes available,
+  // instead of leaving it looking like auto-crop just didn't happen.
+  useEffect(() => {
+    if (!cvReady || !window.cv) return
+    const cv = window.cv
+    setPages((prev) => prev.map((pg) => {
+      if (!pg.pending) return pg
+      const detected = detectDocumentCorners(cv, pg.rawCanvas)
+      const useCorners = detected || fullFrameCorners(pg.rawCanvas)
+      const cropped = warpToCorners(cv, pg.rawCanvas, useCorners)
+      return { ...pg, corners: useCorners, processedCanvas: enhanceCanvas(cv, cropped, enhanceMode), pending: false }
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cvReady])
+
+  // ── Camera — tries progressively looser constraints so an odd device
+  // (no exact 1080p rear-camera match, etc.) still gets *something*
+  // instead of failing outright. ──
   const startCamera = useCallback(async () => {
     setCameraError(null)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+    const attempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+      { video: { facingMode: { ideal: 'environment' } } },
+      { video: true },
+    ]
+    for (const constraints of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+        return
+      } catch {
+        // try the next, looser set of constraints
       }
-    } catch {
-      setCameraError('Could not access the camera. You can still pick a photo from your files below.')
     }
+    setCameraError('Could not access the camera. You can still pick a photo from your files below.')
   }, [])
 
   useEffect(() => {
@@ -216,25 +305,21 @@ export default function ScanClient() {
     })()
   }, [])
 
-  function goToCrop(canvas: HTMLCanvasElement) {
-    setRawCanvas(canvas)
-    setStep('crop')
+  // Captures (or a picked file) go straight in as a new page, auto-cropped
+  // and enhanced immediately — no confirm step blocking the next shot.
+  function addPage(canvas: HTMLCanvasElement) {
+    const id = `${Date.now()}-${Math.random()}`
     if (cvReady && window.cv) {
       const detected = detectDocumentCorners(window.cv, canvas)
-      setCorners(detected || fullFrameCorners(canvas))
+      const useCorners = detected || fullFrameCorners(canvas)
+      const cropped = warpToCorners(window.cv, canvas, useCorners)
+      const processed = enhanceCanvas(window.cv, cropped, enhanceMode)
+      setPages((p) => [...p, { id, rawCanvas: canvas, corners: useCorners, processedCanvas: processed, pending: false }])
     } else {
-      setCorners(fullFrameCorners(canvas))
+      setPages((p) => [...p, { id, rawCanvas: canvas, corners: null, processedCanvas: canvas, pending: true }])
     }
-  }
-
-  function fullFrameCorners(canvas: HTMLCanvasElement): [Point, Point, Point, Point] {
-    const inset = Math.round(Math.min(canvas.width, canvas.height) * 0.04)
-    return [
-      { x: inset, y: inset },
-      { x: canvas.width - inset, y: inset },
-      { x: canvas.width - inset, y: canvas.height - inset },
-      { x: inset, y: canvas.height - inset },
-    ]
+    setJustCaptured(true)
+    setTimeout(() => setJustCaptured(false), 400)
   }
 
   function capturePhoto() {
@@ -244,47 +329,57 @@ export default function ScanClient() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d')!.drawImage(video, 0, 0)
-    goToCrop(canvas)
+    addPage(canvas)
   }
 
   function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+    const files = Array.from(e.target.files || [])
     e.target.value = ''
-    if (!file) return
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      canvas.getContext('2d')!.drawImage(img, 0, 0)
-      goToCrop(canvas)
-      URL.revokeObjectURL(img.src)
+    for (const file of files) {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        canvas.getContext('2d')!.drawImage(img, 0, 0)
+        addPage(canvas)
+        URL.revokeObjectURL(img.src)
+      }
+      img.src = URL.createObjectURL(file)
     }
-    img.src = URL.createObjectURL(file)
+  }
+
+  function openEditCrop(pageId: string) {
+    const pg = pages.find((p) => p.id === pageId)
+    if (!pg) return
+    setEditingPageId(pageId)
+    setCorners(pg.corners || fullFrameCorners(pg.rawCanvas))
+    setStep('editCrop')
   }
 
   // Track how big the crop image is actually displayed, to translate
   // between screen drag coordinates and the canvas's real pixel corners.
+  const editingPage = pages.find((p) => p.id === editingPageId) || null
   useEffect(() => {
-    if (step !== 'crop' || !imgWrapRef.current) return
+    if (step !== 'editCrop' || !imgWrapRef.current) return
     const el = imgWrapRef.current
     const update = () => setDisplaySize({ width: el.clientWidth, height: el.clientHeight })
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [step, rawCanvas])
+  }, [step, editingPage])
 
-  const scale = rawCanvas && displaySize.width > 0 ? displaySize.width / rawCanvas.width : 1
+  const scale = editingPage && displaySize.width > 0 ? displaySize.width / editingPage.rawCanvas.width : 1
 
   function onCornerPointerDown(index: number) {
     draggingCorner.current = index
   }
   function onOverlayPointerMove(e: React.PointerEvent) {
-    if (draggingCorner.current === null || !corners || !rawCanvas || !imgWrapRef.current) return
+    if (draggingCorner.current === null || !corners || !editingPage || !imgWrapRef.current) return
     const rect = imgWrapRef.current.getBoundingClientRect()
-    const x = Math.min(Math.max(0, (e.clientX - rect.left) / scale), rawCanvas.width)
-    const y = Math.min(Math.max(0, (e.clientY - rect.top) / scale), rawCanvas.height)
+    const x = Math.min(Math.max(0, (e.clientX - rect.left) / scale), editingPage.rawCanvas.width)
+    const y = Math.min(Math.max(0, (e.clientY - rect.top) / scale), editingPage.rawCanvas.height)
     const next = [...corners] as [Point, Point, Point, Point]
     next[draggingCorner.current] = { x, y }
     setCorners(next)
@@ -293,17 +388,19 @@ export default function ScanClient() {
     draggingCorner.current = null
   }
 
-  function confirmPage() {
-    if (!rawCanvas || !corners) return
-    const cropped = cvReady && window.cv ? warpToCorners(window.cv, rawCanvas, corners) : rawCanvas
-    setPages((p) => [...p, { id: `${Date.now()}-${Math.random()}`, canvas: cropped }])
-    setRawCanvas(null)
+  function confirmCropEdit() {
+    if (!editingPage || !corners) return
+    const cv = window.cv
+    const cropped = cvReady && cv ? warpToCorners(cv, editingPage.rawCanvas, corners) : editingPage.rawCanvas
+    const processed = cvReady && cv ? enhanceCanvas(cv, cropped, enhanceMode) : cropped
+    setPages((prev) => prev.map((p) => (p.id === editingPage.id ? { ...p, corners, processedCanvas: processed, pending: false } : p)))
+    setEditingPageId(null)
     setCorners(null)
     setStep('capture')
   }
 
-  function retake() {
-    setRawCanvas(null)
+  function cancelCropEdit() {
+    setEditingPageId(null)
     setCorners(null)
     setStep('capture')
   }
@@ -341,7 +438,7 @@ export default function ScanClient() {
     const { PDFDocument } = await import('pdf-lib')
     const pdfDoc = await PDFDocument.create()
     for (const page of pages) {
-      const jpegDataUrl = page.canvas.toDataURL('image/jpeg', 0.92)
+      const jpegDataUrl = page.processedCanvas.toDataURL('image/jpeg', 0.92)
       const jpegBytes = Uint8Array.from(atob(jpegDataUrl.split(',')[1]), (c) => c.charCodeAt(0))
       const img = await pdfDoc.embedJpg(jpegBytes)
       const pdfPage = pdfDoc.addPage([img.width, img.height])
@@ -423,21 +520,23 @@ export default function ScanClient() {
         </div>
       </div>
 
-      {/* ── Capture step ── */}
+      {/* ── Capture step — stays put after every shot so you can keep
+          scanning pages back to back. ── */}
       {step === 'capture' && (
         <div className="space-y-4">
-          <div className="bg-black rounded-xl overflow-hidden relative aspect-[3/4] flex items-center justify-center">
+          <div className={`bg-black rounded-xl overflow-hidden relative aspect-[3/4] flex items-center justify-center transition-opacity ${justCaptured ? 'opacity-60' : ''}`}>
             {cameraError ? (
               <p className="text-white/70 text-sm text-center px-6">{cameraError}</p>
             ) : (
-              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
             )}
           </div>
           {!cvReady && !cvLoadFailed && (
             <p className="text-xs text-gray-400 text-center flex items-center justify-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing auto-detect (first scan only)…
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing auto-detect — you can start scanning already, pages just catch up once it&apos;s ready.
             </p>
           )}
+
           <div className="flex items-center gap-3">
             <button
               onClick={capturePhoto}
@@ -455,17 +554,48 @@ export default function ScanClient() {
               <ImagePlus className="w-5 h-5" />
               From Files
             </button>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFilePicked} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilePicked} className="hidden" />
+          </div>
+
+          {/* Enhance mode — applies to captures from here on */}
+          <div className="flex items-center gap-2 justify-center text-xs">
+            <Sparkles className="w-3.5 h-3.5 text-gray-400" />
+            {(['color', 'bw', 'off'] as EnhanceMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setEnhanceMode(m)}
+                className={`px-2.5 py-1 rounded-full border font-medium ${
+                  enhanceMode === m ? 'text-white border-transparent' : 'text-gray-500 border-gray-300 hover:bg-gray-50'
+                }`}
+                style={enhanceMode === m ? { background: '#1e3a5f' } : undefined}
+              >
+                {m === 'color' ? 'Enhance' : m === 'bw' ? 'B&W' : 'Off'}
+              </button>
+            ))}
           </div>
 
           {pages.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-3">
-              <p className="text-xs font-medium text-gray-500 mb-2">{pages.length} page{pages.length !== 1 ? 's' : ''} scanned</p>
+              <p className="text-xs font-medium text-gray-500 mb-2">
+                {pages.length} page{pages.length !== 1 ? 's' : ''} scanned — tap a page to fix its crop
+              </p>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {pages.map((p) => (
                   <div key={p.id} className="relative shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.canvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-20 w-auto rounded border border-gray-200" />
+                    <button onClick={() => openEditCrop(p.id)} className="block">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.processedCanvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-20 w-auto rounded border border-gray-200" />
+                      {p.pending && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/30 rounded">
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        </span>
+                      )}
+                      {!p.pending && (
+                        <span className="absolute bottom-1 right-1 bg-black/50 rounded-full p-1">
+                          <Pencil className="w-2.5 h-2.5 text-white" />
+                        </span>
+                      )}
+                    </button>
                     <button
                       onClick={() => removePage(p.id)}
                       className="absolute -top-1.5 -right-1.5 bg-white rounded-full border border-gray-300 p-0.5 text-gray-500 hover:text-red-600"
@@ -488,8 +618,8 @@ export default function ScanClient() {
         </div>
       )}
 
-      {/* ── Crop step ── */}
-      {step === 'crop' && rawCanvas && corners && (
+      {/* ── Edit crop step — only reached by tapping an existing page ── */}
+      {step === 'editCrop' && editingPage && corners && (
         <div className="space-y-4">
           <div
             ref={imgWrapRef}
@@ -499,7 +629,7 @@ export default function ScanClient() {
             onPointerLeave={onOverlayPointerUp}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={rawCanvas.toDataURL('image/jpeg', 0.85)} alt="Captured page" className="w-full h-auto block" draggable={false} />
+            <img src={editingPage.rawCanvas.toDataURL('image/jpeg', 0.85)} alt="Captured page" className="w-full h-auto block" draggable={false} />
             <svg className="absolute inset-0 w-full h-full pointer-events-none">
               <polygon
                 points={corners.map((c) => `${c.x * scale},${c.y * scale}`).join(' ')}
@@ -512,7 +642,7 @@ export default function ScanClient() {
               <div
                 key={i}
                 onPointerDown={(e) => { e.preventDefault(); onCornerPointerDown(i) }}
-                className="absolute w-7 h-7 -ml-3.5 -mt-3.5 rounded-full bg-white border-2 pointer-events-auto cursor-grab active:cursor-grabbing shadow"
+                className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full bg-white border-2 pointer-events-auto cursor-grab active:cursor-grabbing shadow"
                 style={{ left: c.x * scale, top: c.y * scale, borderColor: '#1e3a5f' }}
               />
             ))}
@@ -520,25 +650,25 @@ export default function ScanClient() {
           <p className="text-xs text-gray-400 text-center">Drag the corners to match the page edges, then confirm.</p>
           <div className="flex items-center gap-3">
             <button
-              onClick={retake}
+              onClick={cancelCropEdit}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
             >
               <RotateCcw className="w-4 h-4" />
-              Retake
+              Cancel
             </button>
             <button
-              onClick={() => setCorners(fullFrameCorners(rawCanvas))}
+              onClick={() => setCorners(fullFrameCorners(editingPage.rawCanvas))}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
             >
               Use Full Image
             </button>
             <button
-              onClick={confirmPage}
+              onClick={confirmCropEdit}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium"
               style={{ background: '#1e3a5f' }}
             >
               <Check className="w-4 h-4" />
-              Confirm Page
+              Confirm
             </button>
           </div>
         </div>
@@ -552,7 +682,7 @@ export default function ScanClient() {
             <div className="flex gap-2 overflow-x-auto pb-1">
               {pages.map((p) => (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={p.id} src={p.canvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-16 w-auto rounded border border-gray-200" />
+                <img key={p.id} src={p.processedCanvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-16 w-auto rounded border border-gray-200" />
               ))}
             </div>
           </div>
