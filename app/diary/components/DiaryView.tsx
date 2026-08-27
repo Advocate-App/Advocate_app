@@ -1454,9 +1454,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     return (
                       <Fragment key={h.id}>
                         <tr className="hover:bg-amber-50/20 transition-colors" style={{ borderLeft: '4px solid #f59e0b' }}>
-                          {/* Pre. */}
-                          <td className="border border-gray-200 px-2 py-1.5 text-center align-top">
-                            <div className="flex flex-col gap-1">
+                          {/* Pre. — vertically centered as a block, so a
+                              short stack doesn't look pinned to the top of
+                              a taller row */}
+                          <td className="border border-gray-200 px-2 py-1.5 text-center align-middle">
+                            <div className="flex flex-col gap-1 justify-center">
                               {group.map((g) => (
                                 <div key={g.id} className="font-mono text-xs text-gray-600">
                                   {g.purpose === 'Case Commenced' ? (
@@ -1487,8 +1489,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Case No. */}
-                          <td className="border border-gray-200 px-2 py-1.5 text-center align-top">
-                            <div className="flex flex-col gap-1">
+                          <td className="border border-gray-200 px-2 py-1.5 text-center align-middle">
+                            <div className="flex flex-col gap-1 justify-center">
                               {group.map((g) => (
                                 <Link
                                   key={g.id}
@@ -1506,7 +1508,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           {/* Party 1 — the shared party shows once; the
                               other side's names run together and wrap
                               naturally, e.g. "Rahul, Ganesh" / "Sehjal" */}
-                          <td className={`border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 ${common?.side === 'plaintiff' ? 'align-middle' : 'align-top'}`}>
+                          <td className="border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 align-middle">
                             {common?.side === 'plaintiff' ? (
                               <span className="text-sm font-medium" style={{ color: '#1e3a5f' }} title="Linked cases — same plaintiff">{common.name}</span>
                             ) : (
@@ -1522,7 +1524,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Party 2 — mirrors Party 1 */}
-                          <td className={`border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 ${common?.side === 'defendant' ? 'align-middle' : 'align-top'}`}>
+                          <td className="border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 align-middle">
                             {common?.side === 'defendant' ? (
                               <span className="text-sm font-medium text-gray-700" title="Linked cases — same defendant">{common.name}</span>
                             ) : (
@@ -1542,7 +1544,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               compact line per case. Vertically centered
                               when merged, so it doesn't float at the top
                               of a taller row with empty space below. */}
-                          <td className={`border border-gray-200 px-2 py-1.5 ${sameStage ? 'align-middle' : 'align-top'}`}>
+                          <td className="border border-gray-200 px-2 py-1.5 align-middle">
                             {sameStage ? (
                               renderMergedStageCell(group)
                             ) : (
@@ -1557,7 +1559,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Next Date — same idea: merged when identical, else per-case */}
-                          <td className={`border border-gray-200 px-2 py-1.5 ${sameNext ? 'align-middle' : 'align-top'}`}>
+                          <td className="border border-gray-200 px-2 py-1.5 align-middle">
                             {sameNext ? (
                               renderMergedNextDateButton(group)
                             ) : (
@@ -1571,11 +1573,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             )}
                           </td>
 
-                          {/* Action */}
-                          <td className="border border-gray-200 px-2 py-1.5 print:hidden align-top">
-                            <div className="divide-y divide-gray-100">
+                          {/* Action — one case's controls next to another's,
+                              in a single compact line (wrapping only if a
+                              comment box is open), not stacked into
+                              separate rows like before */}
+                          <td className="border border-gray-200 px-2 py-1.5 print:hidden align-middle">
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
                               {group.map((g) => (
-                                <div key={g.id} className="py-1 first:pt-0 last:pb-0">
+                                <div key={g.id}>
                                   {renderActionCellContent(g)}
                                 </div>
                               ))}
