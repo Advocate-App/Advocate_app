@@ -296,6 +296,12 @@ export default function CaseDetailPage() {
   // Delete case
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // Deleting now needs a code emailed to your own account first — see
+  // requestDeleteOtp/confirmDeleteOtp below.
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [otpSentTo, setOtpSentTo] = useState<string | null>(null)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpError, setOtpError] = useState<string | null>(null)
 
   // Tracking state
   const [trackingSaving, setTrackingSaving] = useState<string | null>(null) // which field is saving
@@ -851,12 +857,46 @@ export default function CaseDetailPage() {
     loadDocuments()
   }
 
-  // ───── Delete case ─────
-  async function deleteCase() {
-    setDeleting(true)
+  // ───── Delete case — now gated by an emailed OTP (see the two API
+  // routes under app/api/cases/) so an accidental click can't actually
+  // wipe a case; the delete only happens once the code is confirmed. ─────
+  async function requestDeleteOtp() {
+    setSendingOtp(true)
+    setOtpError(null)
     const supabase = createClient()
-    await supabase.from('cases').delete().eq('id', id)
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/cases/request-delete-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ caseId: id }),
+    })
+    const result = await res.json().catch(() => ({}))
+    setSendingOtp(false)
+    if (!res.ok) { setOtpError(result.error || 'Could not send the code — try again.'); return }
+    setOtpSentTo(result.sentTo || 'your email')
+  }
+
+  async function confirmDeleteOtp() {
+    if (!otpCode.trim()) return
+    setDeleting(true)
+    setOtpError(null)
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/cases/confirm-delete-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ caseId: id, code: otpCode.trim() }),
+    })
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) { setDeleting(false); setOtpError(result.error || 'That code didn\'t work — try again.'); return }
     router.push('/diary/search')
+  }
+
+  function cancelDelete() {
+    setShowDeleteConfirm(false)
+    setOtpSentTo(null)
+    setOtpCode('')
+    setOtpError(null)
   }
 
   // ───── Tracking: toggle a boolean field ─────
@@ -1097,22 +1137,58 @@ export default function CaseDetailPage() {
                 <Trash2 className="w-4 h-4" />
                 Delete
               </button>
-            ) : (
+            ) : !otpSentTo ? (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
-                <span className="text-sm text-red-700 font-medium">Delete this case?</span>
+                <span className="text-sm text-red-700 font-medium">Delete this case? We&apos;ll email a code to confirm.</span>
                 <button
-                  onClick={deleteCase}
-                  disabled={deleting}
+                  onClick={requestDeleteOtp}
+                  disabled={sendingOtp}
                   className="px-3 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
                 >
-                  {deleting ? 'Deleting…' : 'Yes, Delete'}
+                  {sendingOtp ? 'Sending…' : 'Send Code'}
                 </button>
                 <button
-                  onClick={() => setShowDeleteConfirm(false)}
+                  onClick={cancelDelete}
                   className="px-3 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
                 >
                   Cancel
                 </button>
+                {otpError && <span className="text-xs text-red-600">{otpError}</span>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 flex-wrap">
+                <span className="text-sm text-red-700 font-medium">Code sent to {otpSentTo} —</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && otpCode.trim()) confirmDeleteOtp() }}
+                  placeholder="6-digit code"
+                  className="w-28 px-2 py-1 border border-red-300 rounded text-sm bg-white text-gray-800 focus:outline-none focus:border-red-500"
+                />
+                <button
+                  onClick={confirmDeleteOtp}
+                  disabled={!otpCode.trim() || deleting}
+                  className="px-3 py-1 rounded text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : 'Confirm Delete'}
+                </button>
+                <button
+                  onClick={requestDeleteOtp}
+                  disabled={sendingOtp}
+                  className="px-2 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {sendingOtp ? 'Resending…' : 'Resend'}
+                </button>
+                <button
+                  onClick={cancelDelete}
+                  className="px-2 py-1 rounded text-xs text-gray-600 bg-white border border-gray-200 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                {otpError && <span className="text-xs text-red-600 w-full">{otpError}</span>}
               </div>
             )}
           </div>

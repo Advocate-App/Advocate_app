@@ -2,29 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Client } from 'pg'
 
 const MIGRATION_SQL = `
--- Migration 012: Link cases together
-CREATE TABLE IF NOT EXISTS case_links (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id         UUID REFERENCES cases(id) ON DELETE CASCADE NOT NULL,
-  linked_case_id  UUID REFERENCES cases(id) ON DELETE CASCADE NOT NULL,
-  note            TEXT,
-  created_at      TIMESTAMPTZ DEFAULT now(),
-  CONSTRAINT case_links_not_self CHECK (case_id <> linked_case_id)
+-- Migration 013: OTP confirmation before permanently deleting a case
+CREATE TABLE IF NOT EXISTS case_delete_otps (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  case_id     UUID REFERENCES cases(id) ON DELETE CASCADE NOT NULL,
+  code        TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ DEFAULT now()
 );
 
-ALTER TABLE case_links ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "case_links_authenticated" ON case_links;
-CREATE POLICY "case_links_authenticated" ON case_links
-  FOR ALL
-  USING (auth.uid() IS NOT NULL)
-  WITH CHECK (auth.uid() IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_case_delete_otps_case ON case_delete_otps(case_id);
 
-CREATE INDEX IF NOT EXISTS idx_case_links_case ON case_links(case_id);
-CREATE INDEX IF NOT EXISTS idx_case_links_linked_case ON case_links(linked_case_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_case_links_unique_pair ON case_links (
-  LEAST(case_id, linked_case_id), GREATEST(case_id, linked_case_id)
-);
+ALTER TABLE case_delete_otps ENABLE ROW LEVEL SECURITY;
 `
 
 export async function POST(req: NextRequest) {
@@ -64,7 +54,7 @@ export async function POST(req: NextRequest) {
     await client.connect()
     await client.query(MIGRATION_SQL)
     await client.end()
-    return NextResponse.json({ ok: true, message: 'Migration 012 applied successfully' })
+    return NextResponse.json({ ok: true, message: 'Migration 013 applied successfully' })
   } catch (err: unknown) {
     await client.end().catch(() => {})
     const msg = err instanceof Error ? err.message : String(err)
