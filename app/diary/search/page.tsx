@@ -21,6 +21,7 @@ interface CaseRow {
   client_name: string | null
   case_stage: string | null
   status: string
+  filed_date: string | null
   is_company_case: boolean
   payment_received: boolean
   bills_generated: boolean
@@ -80,11 +81,14 @@ export default function AllCasesPage() {
   const [cityFilter, setCityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [companyFilter, setCompanyFilter] = useState('all') // all | company | private
+  const [companyNameFilter, setCompanyNameFilter] = useState('all') // a specific company's client_name, or 'all'
   const [stageFilter, setStageFilter] = useState('all')
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [billsFilter, setBillsFilter] = useState('all')
   const [orderFilter, setOrderFilter] = useState('all')
   const [appealFilter, setAppealFilter] = useState('all')
+  const [filedFrom, setFiledFrom] = useState('')
+  const [filedTo, setFiledTo] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -93,7 +97,7 @@ export default function AllCasesPage() {
         fetchAllRows<CaseRow>((from, to) =>
           supabase
             .from('cases')
-            .select('id, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
+            .select('id, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, filed_date, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
             .order('party_plaintiff', { ascending: true })
             .range(from, to)
         ),
@@ -138,15 +142,23 @@ export default function AllCasesPage() {
     return Array.from(set).sort()
   }, [allCases])
 
+  // Distinct company names, for picking one specific company's cases
+  const companyOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of allCases) if (c.is_company_case && c.client_name) set.add(c.client_name)
+    return Array.from(set).sort()
+  }, [allCases])
+
   const activeFilterCount = [
-    courtFilter, cityFilter, statusFilter, companyFilter, stageFilter,
+    courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter,
     paymentFilter, billsFilter, orderFilter, appealFilter,
-  ].filter((v) => v !== 'all').length
+  ].filter((v) => v !== 'all').length + (filedFrom ? 1 : 0) + (filedTo ? 1 : 0)
 
   function clearFilters() {
     setCourtFilter('all'); setCityFilter('all'); setStatusFilter('all')
-    setCompanyFilter('all'); setStageFilter('all')
+    setCompanyFilter('all'); setCompanyNameFilter('all'); setStageFilter('all')
     setPaymentFilter('all'); setBillsFilter('all'); setOrderFilter('all'); setAppealFilter('all')
+    setFiledFrom(''); setFiledTo('')
   }
 
   function triMatch(filter: string, value: boolean) {
@@ -155,7 +167,7 @@ export default function AllCasesPage() {
   }
 
   // Reset to page 1 whenever search or filters change
-  useEffect(() => { setPage(1) }, [query, courtFilter, cityFilter, statusFilter, companyFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter])
+  useEffect(() => { setPage(1) }, [query, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
 
   const filtered = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -165,7 +177,10 @@ export default function AllCasesPage() {
       if (cityFilter !== 'all' && c.city !== cityFilter) return false
       if (statusFilter !== 'all' && c.status !== statusFilter) return false
       if (companyFilter !== 'all' && (companyFilter === 'company') !== c.is_company_case) return false
+      if (companyNameFilter !== 'all' && c.client_name !== companyNameFilter) return false
       if (stageFilter !== 'all' && c.case_stage !== stageFilter) return false
+      if (filedFrom && (!c.filed_date || c.filed_date < filedFrom)) return false
+      if (filedTo && (!c.filed_date || c.filed_date > filedTo)) return false
       if (!triMatch(paymentFilter, c.payment_received)) return false
       if (!triMatch(billsFilter, c.bills_generated)) return false
       if (!triMatch(orderFilter, c.order_passed)) return false
@@ -200,7 +215,7 @@ export default function AllCasesPage() {
     }
     scored.sort((a, b) => a.score - b.score)
     return scored.map((s) => s.row)
-  }, [allCases, query, courtFilter, cityFilter, statusFilter, companyFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter])
+  }, [allCases, query, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageCases = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -286,18 +301,43 @@ export default function AllCasesPage() {
               <option value="reserved">Reserved</option>
             </select>
 
-            <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
+            <select value={companyFilter} onChange={(e) => { setCompanyFilter(e.target.value); if (e.target.value !== 'company') setCompanyNameFilter('all') }}
               className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]">
               <option value="all">Company + Private</option>
               <option value="company">Company Cases</option>
               <option value="private">Private Cases</option>
             </select>
 
+            {companyOptions.length > 0 && (
+              <select value={companyNameFilter} onChange={(e) => { setCompanyNameFilter(e.target.value); if (e.target.value !== 'all') setCompanyFilter('company') }}
+                className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]">
+                <option value="all">Any Company</option>
+                {companyOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}
               className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]">
               <option value="all">All Stages</option>
               {stageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+
+            <div className="flex items-center gap-1.5 px-1">
+              <label className="text-xs text-gray-500">Filed:</label>
+              <input
+                type="date"
+                value={filedFrom}
+                onChange={(e) => setFiledFrom(e.target.value)}
+                className="px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+              />
+              <span className="text-xs text-gray-400">to</span>
+              <input
+                type="date"
+                value={filedTo}
+                onChange={(e) => setFiledTo(e.target.value)}
+                className="px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+              />
+            </div>
 
             <TriSelect label="Payment Received" value={paymentFilter} onChange={setPaymentFilter} />
             <TriSelect label="Bills Generated" value={billsFilter} onChange={setBillsFilter} />

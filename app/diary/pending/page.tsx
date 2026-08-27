@@ -192,9 +192,21 @@ export default function PendingPage() {
     <div className="max-w-4xl">
       <div className="mb-6 flex items-start justify-between gap-3 flex-wrap print:hidden">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Pending Cases</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Pending Cases</h1>
+            {!loading && items.length > 0 && (
+              <span
+                className="inline-flex items-center justify-center min-w-[1.75rem] h-7 px-2 rounded-full text-sm font-bold text-white"
+                style={{ background: '#1e3a5f' }}
+              >
+                {items.length}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-400 mt-0.5">
-            Cases where a hearing has passed but no next date is set. Give each a next date or mark disposed.
+            {!loading && items.length > 0
+              ? `${items.length} case${items.length !== 1 ? 's' : ''} pending${courtFilter !== 'all' ? ` · ${filtered.length} shown for ${courtFilter}` : ''} — give each a next date or mark disposed.`
+              : 'Cases where a hearing has passed but no next date is set. Give each a next date or mark disposed.'}
           </p>
         </div>
         {items.length > 0 && (
