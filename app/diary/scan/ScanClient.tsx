@@ -12,7 +12,6 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { PDFDocument } from 'pdf-lib'
 import { createClient } from '@/lib/supabase/client'
 import { compressFile } from '@/lib/compress'
 import { buildDocFileName, type CaseForNaming } from '@/lib/docNaming'
@@ -334,6 +333,12 @@ export default function ScanClient() {
 
   // ── Build the PDF from all pages (used for both Download and Upload) ──
   async function buildPdf(): Promise<Uint8Array> {
+    // Dynamic import — pdf-lib touches browser-only APIs (DOMMatrix) at
+    // module-evaluation time, which crashes when this page is rendered on
+    // the server (Vercel does this on every request for a dynamic route,
+    // not just at build time). A static top-level import got evaluated
+    // there; this one only loads once actually called, client-side only.
+    const { PDFDocument } = await import('pdf-lib')
     const pdfDoc = await PDFDocument.create()
     for (const page of pages) {
       const jpegDataUrl = page.canvas.toDataURL('image/jpeg', 0.92)
