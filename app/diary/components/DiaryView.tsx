@@ -1470,8 +1470,12 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Court — shown once; linked cases are almost
-                              always in the same court/tribunal */}
-                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                              always in the same court/tribunal. Vertically
+                              centered (not top-aligned) so a single short
+                              value doesn't look like it's floating with
+                              empty space below it when other columns in
+                              this row stack to several lines. */}
+                          <td className="border border-gray-200 px-2 py-1.5 align-middle">
                             <span
                               className="inline-block max-w-[60px] md:max-w-[130px] truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-sm font-semibold text-gray-700"
                               style={{ background: anchorCourtBg }}
@@ -1502,7 +1506,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           {/* Party 1 — the shared party shows once; the
                               other side's names run together and wrap
                               naturally, e.g. "Rahul, Ganesh" / "Sehjal" */}
-                          <td className="border border-gray-200 px-2 py-1.5 align-top max-w-[144px] bg-amber-50/30">
+                          <td className={`border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 ${common?.side === 'plaintiff' ? 'align-middle' : 'align-top'}`}>
                             {common?.side === 'plaintiff' ? (
                               <span className="text-sm font-medium" style={{ color: '#1e3a5f' }} title="Linked cases — same plaintiff">{common.name}</span>
                             ) : (
@@ -1518,7 +1522,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Party 2 — mirrors Party 1 */}
-                          <td className="border border-gray-200 px-2 py-1.5 align-top max-w-[144px] bg-amber-50/30">
+                          <td className={`border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 ${common?.side === 'defendant' ? 'align-middle' : 'align-top'}`}>
                             {common?.side === 'defendant' ? (
                               <span className="text-sm font-medium text-gray-700" title="Linked cases — same defendant">{common.name}</span>
                             ) : (
@@ -1535,8 +1539,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
                           {/* Stage — one merged control when every linked
                               case already shares the same stage, else one
-                              compact line per case */}
-                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                              compact line per case. Vertically centered
+                              when merged, so it doesn't float at the top
+                              of a taller row with empty space below. */}
+                          <td className={`border border-gray-200 px-2 py-1.5 ${sameStage ? 'align-middle' : 'align-top'}`}>
                             {sameStage ? (
                               renderMergedStageCell(group)
                             ) : (
@@ -1551,7 +1557,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </td>
 
                           {/* Next Date — same idea: merged when identical, else per-case */}
-                          <td className="border border-gray-200 px-2 py-1.5 align-top">
+                          <td className={`border border-gray-200 px-2 py-1.5 ${sameNext ? 'align-middle' : 'align-top'}`}>
                             {sameNext ? (
                               renderMergedNextDateButton(group)
                             ) : (
