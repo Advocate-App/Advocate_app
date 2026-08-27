@@ -376,6 +376,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // Inline editing
   const [editingStage, setEditingStage] = useState<string | null>(null)
   const [editingNextDate, setEditingNextDate] = useState<string | null>(null)
+  // When set, the next-date picker applies the chosen date to every id in
+  // this list instead of just editingNextDate — used for a linked-cases
+  // group whose members already share the same next date, so setting a
+  // new one for the group updates all of them in one go.
+  const [editingNextDateGroupIds, setEditingNextDateGroupIds] = useState<string[] | null>(null)
 
   // Comment
   const [commentHearingId, setCommentHearingId] = useState<string | null>(null)
@@ -876,13 +881,102 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     if (isFinalStage(h.stage_on_date)) return <span className="text-xs text-gray-300 italic">—</span>
     return (
       <button
-        onClick={() => setEditingNextDate(h.id)}
+        onClick={() => { setEditingNextDate(h.id); setEditingNextDateGroupIds(null) }}
         className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
         title={h.set_by_name ? `Set by ${h.set_by_name}` : 'Click to set next date'}
       >
         {formatDD_MM(h.next_hearing_date) || <span className="text-gray-300">—</span>}
         {h.next_hearing_date && h.set_by_name && (
           <span className="block text-[9px] font-sans text-gray-400 normal-case">by {h.set_by_name.split(' ')[0]}</span>
+        )}
+      </button>
+    )
+  }
+
+  // Linked cases sharing the same stage and/or next date get ONE control
+  // instead of one per case — editing it applies to every case in the
+  // group at once, since in practice they always move together (same
+  // adjournment, same next date). Falls back to per-case controls (via
+  // renderStageCellContent / renderNextDateButton above) the moment they
+  // actually diverge.
+  async function saveStageForGroup(ids: string[], newStage: string) {
+    setEditingStage(null)
+    await Promise.all(ids.map((id) => saveStage(id, newStage)))
+  }
+
+  function renderMergedStageCell(group: HearingWithCase[]) {
+    const anchor = group[0]
+    const ids = group.map((g) => g.id)
+    const stages = anchor.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
+    if (editingStage === anchor.id) {
+      if (inlineCustomStageId === anchor.id) {
+        return (
+          <input
+            autoFocus
+            type="text"
+            value={inlineCustomStage}
+            onChange={(e) => setInlineCustomStage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && inlineCustomStage.trim()) {
+                saveStageForGroup(ids, inlineCustomStage.trim())
+                setInlineCustomStageId(null)
+                setInlineCustomStage('')
+              }
+              if (e.key === 'Escape') {
+                setEditingStage(null)
+                setInlineCustomStageId(null)
+                setInlineCustomStage('')
+              }
+            }}
+            onBlur={() => { setEditingStage(null); setInlineCustomStageId(null); setInlineCustomStage('') }}
+            className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+            placeholder="Type stage…"
+          />
+        )
+      }
+      return (
+        <select
+          autoFocus
+          defaultValue={anchor.stage_on_date || ''}
+          onChange={(e) => {
+            if (e.target.value === 'Custom...') {
+              setInlineCustomStageId(anchor.id)
+              setInlineCustomStage('')
+            } else {
+              saveStageForGroup(ids, e.target.value)
+            }
+          }}
+          onBlur={() => setEditingStage(null)}
+          className="px-1 py-0.5 border border-gray-300 rounded text-sm bg-white text-gray-900 w-full"
+        >
+          <option value=""></option>
+          {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      )
+    }
+    return (
+      <button
+        onClick={() => setEditingStage(anchor.id)}
+        className="text-xs md:text-sm px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+        title={anchor.stage_on_date ? `${anchor.stage_on_date} — same for all ${group.length} linked cases, click to change` : `Click to set stage for all ${group.length} linked cases`}
+      >
+        {anchor.stage_on_date ? stageAbbrev(anchor.stage_on_date) : <span className="text-gray-300">—</span>}
+      </button>
+    )
+  }
+
+  function renderMergedNextDateButton(group: HearingWithCase[]) {
+    const anchor = group[0]
+    if (isFinalStage(anchor.stage_on_date)) return <span className="text-xs text-gray-300 italic">—</span>
+    return (
+      <button
+        onClick={() => { setEditingNextDate(anchor.id); setEditingNextDateGroupIds(group.map((g) => g.id)) }}
+        className="text-sm font-mono px-1 py-0.5 rounded hover:bg-gray-100 transition-colors text-gray-700 w-full text-center"
+        title={`Same next date for all ${group.length} linked cases — click to change`}
+      >
+        {formatDD_MM(anchor.next_hearing_date) || <span className="text-gray-300">—</span>}
+        {anchor.next_hearing_date && anchor.set_by_name && (
+          <span className="block text-[9px] font-sans text-gray-400 normal-case">by {anchor.set_by_name.split(' ')[0]}</span>
         )}
       </button>
     )
@@ -1152,15 +1246,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         const h = hearings.find((x) => x.id === editingNextDate)
         if (!h) return null
         const current = h.next_hearing_date ? parseISO(h.next_hearing_date) : null
+        const targetIds = editingNextDateGroupIds && editingNextDateGroupIds.length > 0 ? editingNextDateGroupIds : [h.id]
         return (
           <CalendarPickerModal
             initialDate={current || new Date()}
             selectedDate={current}
             hearingCounts={monthHearingCounts}
             onMonthChange={fetchMonthDates}
-            onSelect={(d) => { saveNextDate(h.id, toYMD(d)); setEditingNextDate(null) }}
-            onClear={() => { saveNextDate(h.id, ''); setEditingNextDate(null) }}
-            onClose={() => setEditingNextDate(null)}
+            onSelect={(d) => { targetIds.forEach((id) => saveNextDate(id, toYMD(d))); setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
+            onClear={() => { targetIds.forEach((id) => saveNextDate(id, '')); setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
+            onClose={() => { setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
             todayLabel="Today"
           />
         )
@@ -1350,6 +1445,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     const anchorCourtCode = group[0].caseData.court_code || ''
                     const anchorCourtBg = getCourtColor(anchorCourtCode)
                     const sameCourt = group.every((g) => (g.caseData.court_code || '') === anchorCourtCode)
+                    // Linked cases almost always move together — if the
+                    // whole group already shares the same stage/next date,
+                    // show and edit it once instead of one line per case.
+                    const sameStage = group.every((g) => (g.stage_on_date || '') === (group[0].stage_on_date || ''))
+                    const sameNext = group.every((g) => (g.next_hearing_date || '') === (group[0].next_hearing_date || ''))
 
                     return (
                       <Fragment key={h.id}>
@@ -1433,26 +1533,36 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             )}
                           </td>
 
-                          {/* Stage — one compact line per linked case, still individually editable */}
+                          {/* Stage — one merged control when every linked
+                              case already shares the same stage, else one
+                              compact line per case */}
                           <td className="border border-gray-200 px-2 py-1.5 align-top">
-                            <div className="divide-y divide-gray-100">
-                              {group.map((g) => (
-                                <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
-                                  {renderStageCellContent(g)}
-                                </div>
-                              ))}
-                            </div>
+                            {sameStage ? (
+                              renderMergedStageCell(group)
+                            ) : (
+                              <div className="divide-y divide-gray-100">
+                                {group.map((g) => (
+                                  <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
+                                    {renderStageCellContent(g)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </td>
 
-                          {/* Next Date — same, one line per linked case */}
+                          {/* Next Date — same idea: merged when identical, else per-case */}
                           <td className="border border-gray-200 px-2 py-1.5 align-top">
-                            <div className="divide-y divide-gray-100">
-                              {group.map((g) => (
-                                <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
-                                  {renderNextDateButton(g)}
-                                </div>
-                              ))}
-                            </div>
+                            {sameNext ? (
+                              renderMergedNextDateButton(group)
+                            ) : (
+                              <div className="divide-y divide-gray-100">
+                                {group.map((g) => (
+                                  <div key={g.id} className="py-1 first:pt-0 last:pb-0 text-center">
+                                    {renderNextDateButton(g)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </td>
 
                           {/* Action */}
