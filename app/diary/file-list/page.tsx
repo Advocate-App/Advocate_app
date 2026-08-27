@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { format, parseISO } from 'date-fns'
 import { Printer, Search } from 'lucide-react'
-import { DISTRICT_COURTS, getCourtShortLabel } from '@/lib/constants/courts'
+import { getCourtShortLabel } from '@/lib/constants/courts'
+import { cityFor as cityForCourt } from '@/lib/cityFor'
 
 interface CaseRow {
   id: string
@@ -21,13 +23,8 @@ interface CaseRow {
   hearing_date: string
 }
 
-// Prefer the case's own saved city; fall back to the court's district for
-// older cases that don't have one, and finally the High Court bench.
-const DISTRICT_BY_CODE = new Map(DISTRICT_COURTS.map((c) => [c.code, c.district]))
-const HC_BENCH_CITY: Record<string, string> = { jodhpur: 'Jodhpur', jaipur: 'Jaipur' }
 function cityFor(c: CaseRow): string {
-  if (c.city?.trim()) return c.city.trim()
-  return DISTRICT_BY_CODE.get(c.court_code) || HC_BENCH_CITY[c.court_code] || 'Other'
+  return cityForCourt(c.court_code, c.city)
 }
 
 // Short court name for the printed list; custom courts have no short code
@@ -162,6 +159,8 @@ export default function FileListPage() {
   const [cases, setCases] = useState<CaseRow[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
+  useEffect(() => { setIsMounted(true) }, [])
 
   async function fetchFiles() {
     if (!fromDate || !toDate) return
@@ -237,6 +236,34 @@ export default function FileListPage() {
       .map((name) => ({ name, rows: map[name] }))
   }
 
+  // A busy bucket like "Private" can easily run to 50+ cases — printed as
+  // one card, that's simply taller than a single A4 page, so there's no
+  // page break "break-inside: avoid" could ever honour and it splits
+  // anyway. Cut anything past a safe number of cases into extra numbered
+  // cards (each still whole hearing-dates only, never splitting a date's
+  // cases in half) so every single card is guaranteed to fit on one page.
+  const MAX_ROWS_PER_CARD = 25
+  function chunkByDate(rows: CaseRow[], maxPerChunk: number): CaseRow[][] {
+    const byDate: Record<string, CaseRow[]> = {}
+    for (const c of rows) {
+      if (!byDate[c.hearing_date]) byDate[c.hearing_date] = []
+      byDate[c.hearing_date].push(c)
+    }
+    const dates = Object.keys(byDate).sort()
+    const chunks: CaseRow[][] = []
+    let current: CaseRow[] = []
+    for (const date of dates) {
+      const dateRows = byDate[date]
+      if (current.length > 0 && current.length + dateRows.length > maxPerChunk) {
+        chunks.push(current)
+        current = []
+      }
+      current.push(...dateRows)
+    }
+    if (current.length > 0) chunks.push(current)
+    return chunks
+  }
+
   // Straight 3-column newspaper flow: pour every card in one after another,
   // in city then bucket order. A big bucket like Private just fills out
   // whatever's left of column 1, then carries straight on at the top of
@@ -255,17 +282,21 @@ export default function FileListPage() {
       )
     }
     for (const { name, rows } of bucketsFor(byCity[city])) {
-      allCards.push(
-        <div key={`${city}::${name}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-4 print:mb-[3mm] print:rounded-md print:border">
-          <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
-            <span className="text-sm font-bold text-white uppercase tracking-widest print:text-[13px]">{name}</span>
-            <span className="text-xs text-blue-200 print:text-[11px]">({rows.length})</span>
+      const chunks = chunkByDate(rows, MAX_ROWS_PER_CARD)
+      chunks.forEach((chunkRows, chunkIdx) => {
+        const title = chunks.length > 1 ? `${name} (${chunkIdx + 1}/${chunks.length})` : name
+        allCards.push(
+          <div key={`${city}::${name}::${chunkIdx}`} className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden mb-4 print:mb-[3mm] print:rounded-md print:border print:break-inside-avoid">
+            <div className="px-4 py-3 border-b-2 border-gray-200 flex items-center gap-2 print:px-2 print:py-1.5 print:break-after-avoid" style={{ background: '#1e3a5f' }}>
+              <span className="text-sm font-bold text-white uppercase tracking-widest print:text-[13px]">{title}</span>
+              <span className="text-xs text-blue-200 print:text-[11px]">({chunkRows.length})</span>
+            </div>
+            <div className="p-4 print:p-2">
+              <BucketList cases={chunkRows} />
+            </div>
           </div>
-          <div className="p-4 print:p-2">
-            <BucketList cases={rows} />
-          </div>
-        </div>
-      )
+        )
+      })
     }
   }
 
@@ -333,19 +364,14 @@ export default function FileListPage() {
           ) : (
             <div>
 
-              {/* Print header */}
-              <div className="hidden print:block text-center mb-4 print:mb-3">
-                <div className="font-bold text-base">File Pull List</div>
-                <div className="text-xs text-gray-600">
-                  {fromDate === toDate ? fmtDate(fromDate) : `${fmtDate(fromDate)} – ${fmtDate(toDate)}`}
-                </div>
-              </div>
-
-              {/* True 3-column flow for print — content pours from column 1
-                  into column 2 into column 3 like a newspaper, so a big
-                  bucket just continues where it left off instead of being
-                  held back as one sealed box. */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:block print:columns-3 print:gap-[5mm]">
+              {/* On-screen only — the print version below is a separate
+                  copy rendered straight onto <body> via a portal. Chrome's
+                  print/PDF export defers a multi-column block to a whole
+                  fresh (blank) page if *anything* — even one hidden div —
+                  precedes it in the DOM, so the print copy can't live
+                  inside this page's normal layout at all; it has to be
+                  the very first thing on <body>. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 print:hidden">
                 {allCards}
               </div>
 

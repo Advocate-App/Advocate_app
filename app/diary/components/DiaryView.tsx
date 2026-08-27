@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { fetchAllRows } from '@/lib/fetchAll'
+import { cityFor } from '@/lib/cityFor'
 import {
   format,
   parseISO,
@@ -75,6 +76,7 @@ interface CaseRecord {
   status: string
   ecourts_cnr: string | null
   hc_bench: string | null
+  city: string | null
 }
 
 interface HearingRow {
@@ -355,6 +357,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // for *both* senior advocates, not just cases matching their own id
   // (which never matches anything and used to leave the diary empty).
   const [visibleAdvocateIds, setVisibleAdvocateIds] = useState<string[] | null>(null)
+  // Junior advocates only see Udaipur cases among the seniors' — their own
+  // cases (any city) always show regardless. null = no restriction.
+  const [cityRestriction, setCityRestriction] = useState<string | null>(null)
   const [slipPrinting, setSlipPrinting] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
@@ -428,13 +433,22 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         if (data) {
           setAdvocateId(data.id)
           setAdvocateName(data.full_name || '')
+          // Juniors see their own cases plus both seniors' — the seniors
+          // lookup used to silently come back empty (RLS on `advocates`
+          // only ever let you read your own row), which meant a junior's
+          // ownerIds ended up as just [] and nothing showed at all. Fixed
+          // via migration 014 (advocates table now readable by any
+          // authenticated advocate, still only writable to your own row).
           let ownerIds = [data.id]
           if (data.role === 'junior') {
             const { data: seniors } = await supabase
               .from('advocates')
               .select('id')
               .eq('role', 'advocate')
-            ownerIds = (seniors || []).map((s: { id: string }) => s.id)
+            ownerIds = [data.id, ...(seniors || []).map((s: { id: string }) => s.id)]
+            setCityRestriction('Udaipur')
+          } else {
+            setCityRestriction(null)
           }
           setVisibleAdvocateIds(ownerIds)
           const { data: cc } = await supabase
@@ -473,11 +487,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setCachedCaseIds(null)
     fetchedMonthsRef.current = new Set()
     const supabase = createClient()
-    fetchAllRows<{ id: string }>((from, to) =>
-      supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
-    ).then((rows) => setCachedCaseIds(rows.map((r) => r.id)))
-      .catch((err) => console.error('case id cache error:', err))
-  }, [visibleAdvocateIds])
+    fetchAllRows<{ id: string; advocate_id: string; court_code: string | null; city: string | null }>((from, to) =>
+      supabase.from('cases').select('id, advocate_id, court_code, city').in('advocate_id', visibleAdvocateIds).range(from, to)
+    ).then((rows) => {
+      const filtered = cityRestriction
+        ? rows.filter((r) => r.advocate_id === advocateId || cityFor(r.court_code, r.city) === cityRestriction)
+        : rows
+      setCachedCaseIds(filtered.map((r) => r.id))
+    }).catch((err) => console.error('case id cache error:', err))
+  }, [visibleAdvocateIds, cityRestriction, advocateId])
 
   // Fetch hearing counts for a given month — this advocate's hearings (or,
   // for a junior, both senior advocates' combined). Takes the month to
@@ -556,7 +574,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const caseIds = [...new Set(hearingRows.map((h: HearingRow) => h.case_id))]
       const { data: cases } = await supabase
         .from('cases')
-        .select('id, advocate_id, court_level, court_name, court_code, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, our_role, opposite_advocate, case_stage, status, ecourts_cnr, hc_bench')
+        .select('id, advocate_id, court_level, court_name, court_code, case_number, case_year, case_type, party_plaintiff, party_defendant, full_title, client_name, client_side, our_role, opposite_advocate, case_stage, status, ecourts_cnr, hc_bench, city')
         .in('id', caseIds)
 
       if (!cases) { setHearings([]); setLoading(false); return }
@@ -567,7 +585,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const combined: HearingWithCase[] = []
       for (const h of hearingRows as HearingRow[]) {
         const c = caseMap.get(h.case_id)
-        if (c && visibleAdvocateIds && visibleAdvocateIds.includes(c.advocate_id)) combined.push({ ...h, caseData: c })
+        // A junior only sees Udaipur cases among the seniors' — their own
+        // cases (any city) still always show.
+        const cityOk = !cityRestriction || c?.advocate_id === advocateId || cityFor(c?.court_code, c?.city) === cityRestriction
+        if (c && visibleAdvocateIds && visibleAdvocateIds.includes(c.advocate_id) && cityOk) combined.push({ ...h, caseData: c })
       }
 
       combined.sort((a, b) =>
@@ -593,7 +614,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     } finally {
       setLoading(false)
     }
-  }, [visibleAdvocateIds, selectedDate])
+  }, [visibleAdvocateIds, selectedDate, cityRestriction, advocateId])
 
   useEffect(() => {
     if (visibleAdvocateIds && visibleAdvocateIds.length > 0) { fetchHearings(); fetchMonthDates(selectedDate) }

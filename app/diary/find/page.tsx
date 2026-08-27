@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getCourtShortLabel, formatCaseNumber } from '@/lib/constants/courts'
 import { matchScore, suggestCorrections } from '@/lib/fuzzy'
 import { fetchAllRows } from '@/lib/fetchAll'
+import { cityFor } from '@/lib/cityFor'
 import Link from 'next/link'
 import { Search, X, Sparkles, ArrowRight } from 'lucide-react'
 
@@ -19,6 +20,8 @@ interface CaseRow {
   client_name: string | null
   case_stage: string | null
   status: string
+  advocate_id: string
+  city: string | null
 }
 
 interface CustomCourtRow {
@@ -47,17 +50,30 @@ export default function FindCasePage() {
   useEffect(() => {
     async function load() {
       const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      let myAdvocateId: string | null = null
+      let isJunior = false
+      if (user) {
+        const { data: me } = await supabase.from('advocates').select('id, role').eq('user_id', user.id).limit(1).maybeSingle()
+        if (me) { myAdvocateId = me.id; isJunior = me.role === 'junior' }
+      }
+
       const [cases, { data: cc }] = await Promise.all([
         fetchAllRows<CaseRow>((from, to) =>
           supabase
             .from('cases')
-            .select('id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, case_stage, status')
+            .select('id, advocate_id, court_code, court_name, case_number, case_year, party_plaintiff, party_defendant, client_name, case_stage, status, city')
             .order('party_plaintiff', { ascending: true })
             .range(from, to)
         ),
         supabase.from('custom_courts').select('id, name, short_name, builtin_code'),
       ])
-      setAllCases(cases)
+      // A junior only sees Udaipur cases here — their own cases (any city)
+      // still always show. Same rule as the main Diary.
+      const visible = isJunior
+        ? cases.filter((c) => c.advocate_id === myAdvocateId || cityFor(c.court_code, c.city) === 'Udaipur')
+        : cases
+      setAllCases(visible)
       setCustomCourts((cc as CustomCourtRow[]) || [])
       setLoading(false)
     }
