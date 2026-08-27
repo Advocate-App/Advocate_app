@@ -359,6 +359,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
   const [loading, setLoading] = useState(true)
+  // Pairs of linked cases (from the "Linked Cases" feature) that both have
+  // a hearing on the selected date — used to show them clubbed together as
+  // one box instead of separate rows when they share a common party.
+  const [caseLinkPairs, setCaseLinkPairs] = useState<{ case_id: string; linked_case_id: string }[]>([])
 
   // Month hearing dates for navigator — date (YYYY-MM-DD) -> hearing count,
   // so the calendar strip can show workload per day, not just "has any"
@@ -571,6 +575,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       )
 
       setHearings(combined)
+
+      // Linked-case pairs where both sides have a hearing today — that's
+      // what lets two rows below get clubbed into one box.
+      const [{ data: links1 }, { data: links2 }] = await Promise.all([
+        supabase.from('case_links').select('case_id, linked_case_id').in('case_id', caseIds),
+        supabase.from('case_links').select('case_id, linked_case_id').in('linked_case_id', caseIds),
+      ])
+      const caseIdSet = new Set(caseIds)
+      const relevantPairs = [...(links1 || []), ...(links2 || [])].filter(
+        (p) => caseIdSet.has(p.case_id) && caseIdSet.has(p.linked_case_id)
+      )
+      setCaseLinkPairs(relevantPairs)
     } catch (err) {
       console.error('fetchHearings error:', err)
       setHearings([])
@@ -794,6 +810,74 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           .includes(diaryFilter.toLowerCase())
       )
     : hearings
+
+  // Linked cases that share one common party (e.g. three different
+  // plaintiffs all suing the same "Rahul") get clubbed into one box today —
+  // that common party's cell spans all their rows instead of repeating it,
+  // and the other party still lists once per row. Only clubs when the
+  // common name is on the *same side* (all-plaintiff or all-defendant)
+  // across the whole group; if the roles are reversed case to case there's
+  // no clean column to merge, so those just stay as normal separate rows.
+  function findCommonParty(group: HearingWithCase[]): { name: string; side: 'plaintiff' | 'defendant' } | null {
+    const norm = (s: string) => s.trim().toLowerCase()
+    const firstDef = norm(group[0].caseData.party_defendant)
+    if (firstDef && group.every((g) => norm(g.caseData.party_defendant) === firstDef)) {
+      return { name: group[0].caseData.party_defendant, side: 'defendant' }
+    }
+    const firstPl = norm(group[0].caseData.party_plaintiff)
+    if (firstPl && group.every((g) => norm(g.caseData.party_plaintiff) === firstPl)) {
+      return { name: group[0].caseData.party_plaintiff, side: 'plaintiff' }
+    }
+    return null
+  }
+
+  function buildDisplayHearings(list: HearingWithCase[], pairs: { case_id: string; linked_case_id: string }[]) {
+    const idsToday = new Set(list.map((h) => h.case_id))
+    const parent = new Map<string, string>()
+    for (const id of idsToday) parent.set(id, id)
+    function find(x: string): string {
+      let r = x
+      while (parent.get(r) !== r) r = parent.get(r) as string
+      return r
+    }
+    function union(a: string, b: string) {
+      const ra = find(a); const rb = find(b)
+      if (ra !== rb) parent.set(ra, rb)
+    }
+    for (const p of pairs) {
+      if (idsToday.has(p.case_id) && idsToday.has(p.linked_case_id)) union(p.case_id, p.linked_case_id)
+    }
+
+    const groups = new Map<string, HearingWithCase[]>()
+    for (const h of list) {
+      const root = find(h.case_id)
+      if (!groups.has(root)) groups.set(root, [])
+      groups.get(root)!.push(h)
+    }
+
+    const ordered: HearingWithCase[] = []
+    const groupSizeById = new Map<string, number>()
+    const anchorIds = new Set<string>()
+    const commonPartyById = new Map<string, { name: string; side: 'plaintiff' | 'defendant' }>()
+    const seenRoot = new Set<string>()
+    for (const h of list) {
+      const root = find(h.case_id)
+      if (seenRoot.has(root)) continue
+      seenRoot.add(root)
+      const group = groups.get(root)!
+      ordered.push(...group)
+      if (group.length > 1) {
+        const common = findCommonParty(group)
+        if (common) {
+          for (const g of group) { groupSizeById.set(g.id, group.length); commonPartyById.set(g.id, common) }
+          anchorIds.add(group[0].id)
+        }
+      }
+    }
+    return { ordered, groupSizeById, anchorIds, commonPartyById }
+  }
+
+  const { ordered: displayHearings, groupSizeById, anchorIds, commonPartyById } = buildDisplayHearings(filteredHearings, caseLinkPairs)
 
   // Date display parts
   const monthName = format(selectedDate, 'MMMM').toUpperCase()
@@ -1085,12 +1169,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredHearings.map((h) => {
+                {displayHearings.map((h) => {
                   const borderColor = rowBorderColor(h)
                   const courtCode = h.caseData.court_code || ''
                   const courtBg = getCourtColor(courtCode)
                   const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
                   const ecLink = eCourtsDeepLink(h.caseData.ecourts_cnr)
+                  const common = commonPartyById.get(h.id)
+                  const isAnchor = anchorIds.has(h.id)
+                  const groupSize = groupSizeById.get(h.id) || 1
 
                   return (
                     <>
@@ -1137,15 +1224,33 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </Link>
                         </td>
 
-                        {/* Party 1 */}
-                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
-                        </td>
+                        {/* Party 1 — merged (rowSpan) across the group when
+                            the common linked-case party is the plaintiff */}
+                        {common?.side === 'plaintiff' ? (
+                          isAnchor && (
+                            <td rowSpan={groupSize} className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px] align-middle bg-amber-50/40" title="Linked cases — same plaintiff">
+                              <span className="truncate block" style={{ color: '#1e3a5f' }}>{common.name}</span>
+                            </td>
+                          )
+                        ) : (
+                          <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
+                            <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
+                          </td>
+                        )}
 
-                        {/* Party 2 */}
-                        <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
-                        </td>
+                        {/* Party 2 — merged (rowSpan) across the group when
+                            the common linked-case party is the defendant */}
+                        {common?.side === 'defendant' ? (
+                          isAnchor && (
+                            <td rowSpan={groupSize} className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px] align-middle bg-amber-50/40" title="Linked cases — same defendant">
+                              <span className="truncate block text-gray-700">{common.name}</span>
+                            </td>
+                          )
+                        ) : (
+                          <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
+                            <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
+                          </td>
+                        )}
 
                         {/* Stage */}
                         <td className="border border-gray-200 px-2 py-2 text-center">
