@@ -199,8 +199,10 @@ export default function ScanClient() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [videoReady, setVideoReady] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [justCaptured, setJustCaptured] = useState(false)
+  const [captureNote, setCaptureNote] = useState<string | null>(null)
 
   // OpenCV
   const [cvReady, setCvReady] = useState(false)
@@ -265,6 +267,7 @@ export default function ScanClient() {
   // instead of failing outright. ──
   const startCamera = useCallback(async () => {
     setCameraError(null)
+    setVideoReady(false)
     const attempts: MediaStreamConstraints[] = [
       { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
       { video: { facingMode: { ideal: 'environment' } } },
@@ -276,7 +279,13 @@ export default function ScanClient() {
         streamRef.current = stream
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play()
+          try {
+            await videoRef.current.play()
+          } catch {
+            // Some browsers reject an explicit play() call even though the
+            // stream itself is fine and starts via the autoPlay attribute
+            // anyway — don't throw away a working stream over this.
+          }
         }
         return
       } catch {
@@ -307,14 +316,22 @@ export default function ScanClient() {
 
   // Captures (or a picked file) go straight in as a new page, auto-cropped
   // and enhanced immediately — no confirm step blocking the next shot.
+  // Wrapped defensively: if edge-detection/crop/enhance throws for any
+  // reason (a bad frame, an opencv quirk), the raw photo is still kept
+  // rather than the whole capture silently vanishing.
   function addPage(canvas: HTMLCanvasElement) {
     const id = `${Date.now()}-${Math.random()}`
     if (cvReady && window.cv) {
-      const detected = detectDocumentCorners(window.cv, canvas)
-      const useCorners = detected || fullFrameCorners(canvas)
-      const cropped = warpToCorners(window.cv, canvas, useCorners)
-      const processed = enhanceCanvas(window.cv, cropped, enhanceMode)
-      setPages((p) => [...p, { id, rawCanvas: canvas, corners: useCorners, processedCanvas: processed, pending: false }])
+      try {
+        const detected = detectDocumentCorners(window.cv, canvas)
+        const useCorners = detected || fullFrameCorners(canvas)
+        const cropped = warpToCorners(window.cv, canvas, useCorners)
+        const processed = enhanceCanvas(window.cv, cropped, enhanceMode)
+        setPages((p) => [...p, { id, rawCanvas: canvas, corners: useCorners, processedCanvas: processed, pending: false }])
+      } catch (err) {
+        console.error('auto-crop/enhance failed, keeping the raw photo:', err)
+        setPages((p) => [...p, { id, rawCanvas: canvas, corners: null, processedCanvas: canvas, pending: false }])
+      }
     } else {
       setPages((p) => [...p, { id, rawCanvas: canvas, corners: null, processedCanvas: canvas, pending: true }])
     }
@@ -324,12 +341,24 @@ export default function ScanClient() {
 
   function capturePhoto() {
     const video = videoRef.current
-    if (!video || video.videoWidth === 0) return
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d')!.drawImage(video, 0, 0)
-    addPage(canvas)
+    if (!video || video.videoWidth === 0 || video.readyState < 2) {
+      setCaptureNote('Camera is still starting up — give it a second and try again.')
+      setTimeout(() => setCaptureNote(null), 2500)
+      return
+    }
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2d context')
+      ctx.drawImage(video, 0, 0)
+      addPage(canvas)
+    } catch (err) {
+      console.error('capture failed:', err)
+      setCaptureNote('That capture didn’t work — try again.')
+      setTimeout(() => setCaptureNote(null), 2500)
+    }
   }
 
   function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -528,7 +557,23 @@ export default function ScanClient() {
             {cameraError ? (
               <p className="text-white/70 text-sm text-center px-6">{cameraError}</p>
             ) : (
-              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+              <>
+                <video
+                  ref={videoRef}
+                  className="w-full h-full object-cover"
+                  playsInline
+                  muted
+                  autoPlay
+                  onLoadedMetadata={() => setVideoReady(true)}
+                />
+                {!videoReady && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                    <p className="text-white/80 text-sm flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Starting camera…
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
           {!cvReady && !cvLoadFailed && (
@@ -536,16 +581,19 @@ export default function ScanClient() {
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing auto-detect — you can start scanning already, pages just catch up once it&apos;s ready.
             </p>
           )}
+          {captureNote && (
+            <p className="text-xs text-amber-600 text-center">{captureNote}</p>
+          )}
 
           <div className="flex items-center gap-3">
             <button
               onClick={capturePhoto}
-              disabled={!!cameraError}
+              disabled={!!cameraError || !videoReady}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium disabled:opacity-30"
               style={{ background: '#1e3a5f' }}
             >
               <Camera className="w-5 h-5" />
-              Capture
+              {videoReady ? 'Capture' : 'Starting…'}
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
