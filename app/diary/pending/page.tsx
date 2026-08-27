@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
+import { Printer } from 'lucide-react'
 import { DISTRICT_STAGES, HC_STAGES, getCourtShortLabel } from '@/lib/constants/courts'
 import { fetchAllRows } from '@/lib/fetchAll'
 
@@ -36,6 +37,8 @@ export default function PendingPage() {
   const [customCourts, setCustomCourts] = useState<CustomCourtRow[]>([])
   const [history, setHistory] = useState<Record<string, string[]>>({}) // caseId -> last 3 hearing dates, newest first
   const [me, setMe] = useState<{ id: string; name: string } | null>(null)
+  const [courtFilter, setCourtFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'date' | 'court'>('date')
 
   useEffect(() => { load() }, [])
 
@@ -163,26 +166,118 @@ export default function PendingPage() {
     return s !== code ? s : c.courtName
   }
 
+  // Every court that actually shows up, for the filter dropdown.
+  const courtNames = Array.from(new Set(items.map((i) => courtLabel(i)))).sort((a, b) => a.localeCompare(b))
+
+  const filtered = courtFilter === 'all' ? items : items.filter((i) => courtLabel(i) === courtFilter)
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'court') {
+      const c = courtLabel(a).localeCompare(courtLabel(b))
+      return c !== 0 ? c : a.hearingDate.localeCompare(b.hearingDate)
+    }
+    return a.hearingDate.localeCompare(b.hearingDate)
+  })
+
+  // Print always groups by court regardless of the on-screen sort — that's
+  // what's actually useful for carrying to court, so you can work through
+  // one court's whole stack before moving to the next.
+  const printGroups: { court: string; rows: PendingCase[] }[] = []
+  for (const court of courtNames) {
+    const rows = filtered.filter((i) => courtLabel(i) === court).sort((a, b) => a.hearingDate.localeCompare(b.hearingDate))
+    if (rows.length > 0) printGroups.push({ court, rows })
+  }
+
   return (
     <div className="max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Pending Cases</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Cases where a hearing has passed but no next date is set. Give each a next date or mark disposed.
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3 flex-wrap print:hidden">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Pending Cases</h1>
+          <p className="text-sm text-gray-400 mt-0.5">
+            Cases where a hearing has passed but no next date is set. Give each a next date or mark disposed.
+          </p>
+        </div>
+        {items.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={courtFilter}
+              onChange={(e) => setCourtFilter(e.target.value)}
+              className="px-2.5 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+            >
+              <option value="all">All Courts</option>
+              {courtNames.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'date' | 'court')}
+              className="px-2.5 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+            >
+              <option value="date">Sort: Date-wise</option>
+              <option value="court">Sort: Court-wise</option>
+            </select>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Printer className="w-4 h-4" />
+              Print
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Print-only view — always grouped by court (see printGroups above),
+          each case showing up to 3 previous dates so you can recognize it
+          and gauge how long it's been pending, at a glance in court. */}
+      {items.length > 0 && (
+        <div className="hidden print:block">
+          <div className="text-center mb-4">
+            <div className="font-bold text-base">Pending Cases</div>
+            <div className="text-xs text-gray-600">{format(new Date(), 'd MMMM yyyy')}</div>
+          </div>
+          {printGroups.map((g) => (
+            <div key={g.court} className="mb-4 break-inside-avoid">
+              <div className="text-sm font-bold uppercase tracking-wide mb-1.5 px-2 py-1 text-white" style={{ background: '#1e3a5f' }}>
+                {g.court} <span className="font-normal opacity-75">({g.rows.length})</span>
+              </div>
+              <table className="w-full text-xs border-collapse">
+                <tbody>
+                  {g.rows.map((item, i) => (
+                    <tr key={item.hearingId} className={i > 0 ? 'border-t border-gray-200' : ''}>
+                      <td className="py-1 pr-2 font-mono align-top whitespace-nowrap">
+                        {item.caseNumber}{item.caseYear ? `/${item.caseYear}` : ''}
+                      </td>
+                      <td className="py-1 pr-2 align-top">
+                        {item.plaintiff} <span className="text-gray-400">vs</span> {item.defendant}
+                        {item.stageOnDate && <span className="text-gray-400"> ({item.stageOnDate})</span>}
+                      </td>
+                      <td className="py-1 align-top whitespace-nowrap text-gray-500">
+                        {(history[item.caseId] || [item.hearingDate]).map((d) => format(new Date(d), 'd MMM yy')).join(', ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400">Loading…</div>
+        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400 print:hidden">Loading…</div>
       ) : items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center print:hidden">
           <p className="text-sm text-gray-400">All cases are up to date.</p>
+        </div>
+      ) : sorted.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center print:hidden">
+          <p className="text-sm text-gray-400">No pending cases for that court.</p>
         </div>
       ) : (
         <>
         {/* Mobile cards */}
-        <div className="md:hidden space-y-3">
-          {items.map((item) => {
+        <div className="md:hidden space-y-3 print:hidden">
+          {sorted.map((item) => {
             const stages = item.courtLevel === 'high_court' ? HC_STAGES : DISTRICT_STAGES
             const nd = nextDate[item.hearingId] || ''
             const sg = stage[item.hearingId] !== undefined ? stage[item.hearingId] : (item.stageOnDate || '')
@@ -252,7 +347,7 @@ export default function PendingPage() {
         </div>
 
         {/* Table (desktop) */}
-        <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden print:hidden">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr style={{ background: '#f5f5f0' }}>
@@ -266,7 +361,7 @@ export default function PendingPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item, i) => {
+              {sorted.map((item, i) => {
                 const stages = item.courtLevel === 'high_court' ? HC_STAGES : DISTRICT_STAGES
                 const nd = nextDate[item.hearingId] || ''
                 const sg = stage[item.hearingId] !== undefined ? stage[item.hearingId] : (item.stageOnDate || '')
