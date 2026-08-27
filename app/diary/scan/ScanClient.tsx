@@ -15,11 +15,11 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { compressFile } from '@/lib/compress'
 import { buildDocFileName, type CaseForNaming } from '@/lib/docNaming'
 import { formatCaseNumber } from '@/lib/constants/courts'
-import { Camera, Upload, Download, X, Check, RotateCcw, Loader2, ImagePlus, Search, ArrowLeft, Sparkles, Pencil } from 'lucide-react'
+import { Camera, Upload, Download, X, Check, RotateCcw, Loader2, ImagePlus, Search, ArrowLeft, Sparkles, Pencil, History, ChevronDown, ChevronUp } from 'lucide-react'
 
 // The opencv.js global — typed loosely since its API surface is huge and
 // this file only touches a handful of functions.
@@ -49,6 +49,21 @@ interface CaseResult extends CaseForNaming {
   city: string | null
 }
 
+interface RecentUpload {
+  id: string
+  fileName: string
+  uploadedAt: string
+  caseId: string
+  caseTitle: string
+}
+interface RecentUploadRow {
+  id: string
+  file_name: string
+  uploaded_at: string
+  case_id: string
+  cases: { full_title: string } | null
+}
+
 type Step = 'capture' | 'editCrop' | 'details' | 'uploading' | 'done'
 
 function dist(a: Point, b: Point): number {
@@ -63,6 +78,20 @@ function orderCorners(pts: Point[]): [Point, Point, Point, Point] {
   const tr = pts[diffs.indexOf(Math.max(...diffs))]
   const bl = pts[diffs.indexOf(Math.min(...diffs))]
   return [tl, tr, br, bl]
+}
+
+/** Rejects quads that couldn't plausibly be a document page — a sliver
+ *  (near-collinear points) or a wildly extreme aspect ratio is almost
+ *  always a false detection (a shadow edge, a table corner), and warping
+ *  one of those to fill the frame is what made scans come out garbled. */
+function isPlausiblePageShape(pts: Point[]): boolean {
+  const ordered = orderCorners(pts)
+  const [tl, tr, br, bl] = ordered
+  const width = Math.max(dist(tl, tr), dist(bl, br))
+  const height = Math.max(dist(tl, bl), dist(tr, br))
+  if (width < 20 || height < 20) return false
+  const ratio = width / height
+  return ratio > 0.35 && ratio < 2.8
 }
 
 function fullFrameCorners(canvas: HTMLCanvasElement): [Point, Point, Point, Point] {
@@ -108,15 +137,21 @@ function detectDocumentCorners(cv: CVNamespace, canvas: HTMLCanvasElement): [Poi
         const peri = cv.arcLength(cnt, true)
         const approx = new cv.Mat()
         cv.approxPolyDP(cnt, approx, 0.02 * peri, true)
-        if (approx.rows === 4) {
+        if (approx.rows === 4 && cv.isContourConvex(approx)) {
           const area = cv.contourArea(approx)
-          // Anything under ~12% of the frame is more likely a stray edge
-          // (a shadow, a table pattern) than the actual document.
-          if (area > bestArea && area > imgArea * 0.12) {
-            bestArea = area
+          // A false-positive quad (a shadow, a table edge, a hand) that
+          // gets warped and stretched to fill the frame is what actually
+          // made scans come out looking garbled/unreadable — better to
+          // fall back to the full frame than guess wrong, so this only
+          // accepts a fairly confident, page-shaped match: a good chunk
+          // of the frame, not a sliver.
+          if (area > bestArea && area > imgArea * 0.35) {
             const pts: Point[] = []
             for (let j = 0; j < 4; j++) pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] })
-            bestPoints = pts
+            if (isPlausiblePageShape(pts)) {
+              bestArea = area
+              bestPoints = pts
+            }
           }
         }
         approx.delete()
@@ -224,26 +259,76 @@ export default function ScanClient() {
   const [selectedCase, setSelectedCase] = useState<CaseResult | null>(null)
   const [label, setLabel] = useState('')
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [compressNote, setCompressNote] = useState<string | null>(null)
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
+
+  // History — recently uploaded documents, shown with the exact same
+  // filename (label_party1_party2) they were saved as, e.g. a doc named
+  // "Petition" attached to Rohan vs Sohan shows as "Petition_Rohan_Sohan".
+  const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+
+  const loadRecentUploads = useCallback(async () => {
+    if (!advocateId) return
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('case_documents')
+      .select('id, file_name, uploaded_at, case_id, cases(full_title)')
+      .eq('uploaded_by', advocateId)
+      .order('uploaded_at', { ascending: false })
+      .limit(20)
+    if (data) {
+      setRecentUploads((data as unknown as RecentUploadRow[]).map((d) => ({
+        id: d.id,
+        fileName: d.file_name,
+        uploadedAt: d.uploaded_at,
+        caseId: d.case_id,
+        caseTitle: d.cases?.full_title || '',
+      })))
+    }
+  }, [advocateId])
+
+  useEffect(() => { loadRecentUploads() }, [loadRecentUploads])
 
   // ── Load opencv.js lazily, only on this page ──
   useEffect(() => {
     if (window.cv && window.cv.Mat) { setCvReady(true); return }
+    let cancelled = false
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+
+    // This build of opencv.js's WASM runtime actually calls
+    // Module["onRuntimeInitialized"] when it's ready — not
+    // cv["onRuntimeInitialized"] (that was the bug: pages were never
+    // getting auto-cropped/enhanced because cvReady never flipped to
+    // true). Module has to be pre-defined before the script tag loads.
+    const w = window as unknown as { Module?: Record<string, unknown> }
+    w.Module = {
+      ...w.Module,
+      onRuntimeInitialized() {
+        if (!cancelled) setCvReady(true)
+      },
+    }
+
+    // Belt-and-braces: also poll for window.cv.Mat directly, in case this
+    // particular build exposes readiness some other way than the hook
+    // above — either path flips cvReady, whichever fires first.
+    pollTimer = setInterval(() => {
+      if (window.cv && window.cv.Mat) {
+        setCvReady(true)
+        if (pollTimer) clearInterval(pollTimer)
+      }
+    }, 500)
+
     const script = document.createElement('script')
     script.src = '/opencv.js'
     script.async = true
-    script.onload = () => {
-      const check = () => {
-        if (window.cv && window.cv.Mat) setCvReady(true)
-        else if (window.cv) window.cv['onRuntimeInitialized'] = () => setCvReady(true)
-        else setTimeout(check, 200)
-      }
-      check()
-    }
     script.onerror = () => setCvLoadFailed(true)
     document.body.appendChild(script)
-    return () => { document.body.removeChild(script) }
+
+    return () => {
+      cancelled = true
+      if (pollTimer) clearInterval(pollTimer)
+      document.body.removeChild(script)
+    }
   }, [])
 
   // A page captured before opencv finished loading went in un-cropped —
@@ -353,6 +438,9 @@ export default function ScanClient() {
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('no 2d context')
       ctx.drawImage(video, 0, 0)
+      // A short buzz so a shot actually feels taken — Android Chrome only,
+      // iOS Safari doesn't support the Vibration API and just no-ops.
+      navigator.vibrate?.(50)
       addPage(canvas)
     } catch (err) {
       console.error('capture failed:', err)
@@ -495,10 +583,14 @@ export default function ScanClient() {
     try {
       const bytes = pdfBytes || (await buildPdf())
       const displayName = buildDocFileName(selectedCase, label.trim() || 'Scan', 'pdf')
-      const rawFile = new File([bytes.slice().buffer], displayName, { type: 'application/pdf' })
-
-      const { file, note } = await compressFile(rawFile)
-      if (note) setCompressNote(note)
+      // No compressFile() here on purpose — each page was already JPEG-
+      // encoded at capture resolution when the PDF was built above.
+      // Running that back through the general-purpose PDF compressor
+      // re-renders every page down to 160 DPI and re-compresses it a
+      // *second* time on top of that — for a close-up document photo,
+      // that double compression is exactly what was making scans come
+      // out blurry and unreadable.
+      const file = new File([bytes.slice().buffer], displayName, { type: 'application/pdf' })
 
       const supabase = createClient()
       const ts = Date.now()
@@ -518,6 +610,7 @@ export default function ScanClient() {
         uploaded_by: advocateId,
       })
 
+      loadRecentUploads()
       setStep('done')
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed — try again.')
@@ -532,7 +625,6 @@ export default function ScanClient() {
     setCaseResults([])
     setLabel('')
     setUploadError(null)
-    setCompressNote(null)
     setPdfBytes(null)
     setStep('capture')
   }
@@ -543,11 +635,36 @@ export default function ScanClient() {
         <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Scan Document</h1>
           <p className="text-sm text-gray-400 mt-0.5">Scan one or more pages, then attach them to a case as one PDF.</p>
         </div>
+        {recentUploads.length > 0 && (
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 shrink-0"
+          >
+            <History className="w-3.5 h-3.5" />
+            History
+            {showHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        )}
       </div>
+
+      {/* ── Recent scans — shown with the exact filename they were saved
+          as (label first, then the case's parties), e.g. a doc named
+          "Petition" attached to Rohan vs Sohan shows as
+          "Petition_Rohan_Sohan(...)". ── */}
+      {showHistory && (
+        <div className="bg-white rounded-xl border border-gray-200 mb-6 divide-y divide-gray-100 max-h-64 overflow-y-auto">
+          {recentUploads.map((u) => (
+            <Link key={u.id} href={`/diary/cases/${u.caseId}`} className="block px-4 py-2.5 hover:bg-gray-50">
+              <p className="text-sm font-medium text-gray-800 truncate">{u.fileName}</p>
+              <p className="text-xs text-gray-400 truncate">{u.caseTitle} · {new Date(u.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* ── Capture step — stays put after every shot so you can keep
           scanning pages back to back. ── */}
@@ -794,7 +911,6 @@ export default function ScanClient() {
             </div>
           )}
 
-          {compressNote && <p className="text-xs text-amber-600">{compressNote}</p>}
           {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
 
           <div className="flex items-center gap-3">
