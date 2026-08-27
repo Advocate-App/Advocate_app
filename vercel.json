@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/daily-backup",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/migrate-docs-to-drive",
+      "schedule": "30 18 * * *"
     }
   ]
 }
