@@ -9,17 +9,14 @@ import {
   CalendarDays,
   Briefcase,
   Copy,
-  Send,
-  User,
   Menu,
   X,
   LogOut,
   FolderOpen,
-  Building2,
-  Users,
   Clock,
   CheckSquare,
   Search,
+  MoreHorizontal,
 } from 'lucide-react'
 
 const navItems = [
@@ -29,12 +26,14 @@ const navItems = [
   { href: '/diary/file-list', label: 'File Pull List', icon: FolderOpen },
   { href: '/diary/closed', label: 'Closed Cases', icon: CheckSquare },
   { href: '/diary/search', label: 'All Cases', icon: Briefcase },
-  { href: '/diary/courts', label: 'My Courts', icon: Building2 },
-  { href: '/diary/clients', label: 'My Clients', icon: Users },
   { href: '/diary/copying', label: 'Copying', icon: Copy },
-  { href: '/diary/empanelment', label: 'Empanelment', icon: Send },
-  { href: '/diary/profile', label: 'Profile', icon: User },
+  { href: '/diary/more', label: 'More', icon: MoreHorizontal },
 ]
+
+// Profile, Empanelment, My Clients, My Courts all now live inside the
+// single "More" hub page, so the sidebar highlights that entry while
+// you're on any of them, not just on /diary/more itself.
+const MORE_PREFIXES = ['/diary/more', '/diary/profile', '/diary/empanelment', '/diary/clients', '/diary/courts']
 
 // Junior advocates only get the diary + case lookup — everything else
 // (client lists, courts, empanelment, filters/reports, editing) is off
@@ -140,8 +139,9 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
 
         <nav className="p-4 space-y-1">
           {visibleNavItems.map((item) => {
-            const isActive = pathname === item.href ||
-              (item.href !== '/diary' && pathname.startsWith(item.href))
+            const isActive = item.href === '/diary/more'
+              ? MORE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+              : pathname === item.href || (item.href !== '/diary' && pathname.startsWith(item.href))
             const Icon = item.icon
             return (
               <Link
