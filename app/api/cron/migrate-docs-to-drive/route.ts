@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getOrCreateCaseFolder, uploadFileToDrive } from '@/lib/driveDocuments'
 
-// Which Google account's Drive holds case documents — Avi's paid 2TB plan.
-const DRIVE_ACCOUNT: 'avi' | 'ratnesh' = 'avi'
+// Which Google account's Drive holds case documents — Ratnesh's (Avi's
+// father) paid 2TB plan, not Avi's own account.
+const DRIVE_ACCOUNT: 'avi' | 'ratnesh' = 'ratnesh'
 
 // Documents sit in Supabase Storage for a few hours after upload (so the
 // upload itself stays fast and doesn't wait on Drive) before this cron

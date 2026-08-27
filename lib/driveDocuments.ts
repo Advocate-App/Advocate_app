@@ -2,7 +2,7 @@
  * Uploads case documents to Google Drive — the app's own free-tier
  * Supabase Storage is only ever meant to hold a file for a few hours
  * right after upload (so the upload itself stays fast), then the
- * migrate-docs-to-drive cron moves it into Avi's paid 2TB Drive and
+ * migrate-docs-to-drive cron moves it into Ratnesh's paid 2TB Drive and
  * deletes the Supabase copy. See app/api/cron/migrate-docs-to-drive.
  *
  * Uses the same OAuth connection as Gmail/Sheets backups (see
