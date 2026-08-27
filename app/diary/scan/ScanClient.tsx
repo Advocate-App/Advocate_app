@@ -289,38 +289,48 @@ export default function ScanClient() {
 
   useEffect(() => { loadRecentUploads() }, [loadRecentUploads])
 
-  // ── Load opencv.js lazily, only on this page ──
+  // ── Load opencv.js lazily, only on this page — now the official build
+  // from docs.opencv.org (WASM, not the old asm.js one from npm, which
+  // could take a very long time to even finish compiling on a phone —
+  // that was very likely why auto-crop/enhance seemed to never kick in
+  // at all: cvReady just never got a real chance to become true). ──
   useEffect(() => {
     if (window.cv && window.cv.Mat) { setCvReady(true); return }
     let cancelled = false
     let pollTimer: ReturnType<typeof setInterval> | null = null
 
-    // This build of opencv.js's WASM runtime actually calls
-    // Module["onRuntimeInitialized"] when it's ready — not
-    // cv["onRuntimeInitialized"] (that was the bug: pages were never
-    // getting auto-cropped/enhanced because cvReady never flipped to
-    // true). Module has to be pre-defined before the script tag loads.
-    const w = window as unknown as { Module?: Record<string, unknown> }
-    w.Module = {
-      ...w.Module,
-      onRuntimeInitialized() {
-        if (!cancelled) setCvReady(true)
-      },
+    function markReady() {
+      if (!cancelled) setCvReady(true)
     }
 
-    // Belt-and-braces: also poll for window.cv.Mat directly, in case this
-    // particular build exposes readiness some other way than the hook
-    // above — either path flips cvReady, whichever fires first.
-    pollTimer = setInterval(() => {
-      if (window.cv && window.cv.Mat) {
-        setCvReady(true)
-        if (pollTimer) clearInterval(pollTimer)
+    // The official build's `cv` is a thenable (Promise-like) once the
+    // script finishes loading — .then() fires with the fully-ready
+    // object once its WASM runtime is actually initialized. This is the
+    // real, documented signal for this build (a fixed property name
+    // guess was the earlier bug); polling is still kept as a fallback in
+    // case a future build exposes readiness differently again.
+    function afterScriptLoad() {
+      const loaded = window.cv as unknown
+      if (loaded && typeof (loaded as { then?: unknown }).then === 'function') {
+        (loaded as Promise<CVNamespace>).then((ready) => {
+          window.cv = ready
+          markReady()
+        }).catch(() => setCvLoadFailed(true))
+        return
       }
-    }, 500)
+      if (window.cv && window.cv.Mat) { markReady(); return }
+      pollTimer = setInterval(() => {
+        if (window.cv && window.cv.Mat) {
+          markReady()
+          if (pollTimer) clearInterval(pollTimer)
+        }
+      }, 300)
+    }
 
     const script = document.createElement('script')
     script.src = '/opencv.js'
     script.async = true
+    script.onload = afterScriptLoad
     script.onerror = () => setCvLoadFailed(true)
     document.body.appendChild(script)
 
@@ -666,18 +676,24 @@ export default function ScanClient() {
         </div>
       )}
 
-      {/* ── Capture step — stays put after every shot so you can keep
-          scanning pages back to back. ── */}
+      {/* ── Capture step — full-screen like Adobe Scanner/CamScanner, so
+          the frame is actually big enough to see what you're scanning.
+          Stays open after every shot (thumbnails collect along the
+          bottom) so you can keep scanning pages back to back; Done takes
+          you to the (already auto-cropped) page review. ── */}
       {step === 'capture' && (
-        <div className="space-y-4">
-          <div className={`bg-black rounded-xl overflow-hidden relative aspect-[3/4] flex items-center justify-center transition-opacity ${justCaptured ? 'opacity-60' : ''}`}>
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          {/* Camera fills all the space between the top and bottom bars */}
+          <div className={`flex-1 relative overflow-hidden transition-opacity ${justCaptured ? 'opacity-60' : ''}`}>
             {cameraError ? (
-              <p className="text-white/70 text-sm text-center px-6">{cameraError}</p>
+              <div className="absolute inset-0 flex items-center justify-center p-6">
+                <p className="text-white/70 text-sm text-center">{cameraError}</p>
+              </div>
             ) : (
               <>
                 <video
                   ref={videoRef}
-                  className="w-full h-full object-cover"
+                  className="absolute inset-0 w-full h-full object-cover"
                   playsInline
                   muted
                   autoPlay
@@ -692,64 +708,50 @@ export default function ScanClient() {
                 )}
               </>
             )}
-          </div>
-          {!cvReady && !cvLoadFailed && (
-            <p className="text-xs text-gray-400 text-center flex items-center justify-center gap-1.5">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Preparing auto-detect — you can start scanning already, pages just catch up once it&apos;s ready.
-            </p>
-          )}
-          {captureNote && (
-            <p className="text-xs text-amber-600 text-center">{captureNote}</p>
-          )}
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={capturePhoto}
-              disabled={!!cameraError || !videoReady}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium disabled:opacity-30"
-              style={{ background: '#1e3a5f' }}
-            >
-              <Camera className="w-5 h-5" />
-              {videoReady ? 'Capture' : 'Starting…'}
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
-            >
-              <ImagePlus className="w-5 h-5" />
-              From Files
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilePicked} className="hidden" />
-          </div>
-
-          {/* Enhance mode — applies to captures from here on */}
-          <div className="flex items-center gap-2 justify-center text-xs">
-            <Sparkles className="w-3.5 h-3.5 text-gray-400" />
-            {(['color', 'bw', 'off'] as EnhanceMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setEnhanceMode(m)}
-                className={`px-2.5 py-1 rounded-full border font-medium ${
-                  enhanceMode === m ? 'text-white border-transparent' : 'text-gray-500 border-gray-300 hover:bg-gray-50'
-                }`}
-                style={enhanceMode === m ? { background: '#1e3a5f' } : undefined}
-              >
-                {m === 'color' ? 'Enhance' : m === 'bw' ? 'B&W' : 'Off'}
+            {/* Top bar, overlaid on the camera */}
+            <div className="absolute top-0 inset-x-0 flex items-center justify-between gap-3 px-4 py-3 bg-gradient-to-b from-black/60 to-transparent">
+              <button onClick={() => router.back()} className="p-2 rounded-full bg-black/30 text-white">
+                <X className="w-5 h-5" />
               </button>
-            ))}
+              <span className="text-white text-sm font-medium">
+                {pages.length > 0 ? `${pages.length} page${pages.length !== 1 ? 's' : ''} scanned` : 'Scan Document'}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {(['color', 'bw', 'off'] as EnhanceMode[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setEnhanceMode(m)}
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      enhanceMode === m ? 'bg-white text-gray-900' : 'bg-black/30 text-white/80'
+                    }`}
+                  >
+                    {m === 'color' ? 'Enhance' : m === 'bw' ? 'B&W' : 'Off'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {(captureNote || (!cvReady && !cvLoadFailed)) && (
+              <div className="absolute top-14 inset-x-0 flex justify-center px-4">
+                <p className="bg-black/60 text-white/90 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                  {captureNote || (
+                    <><Loader2 className="w-3 h-3 animate-spin" /> Preparing auto-detect — you can keep scanning, pages catch up once it&apos;s ready.</>
+                  )}
+                </p>
+              </div>
+            )}
           </div>
 
-          {pages.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-3">
-              <p className="text-xs font-medium text-gray-500 mb-2">
-                {pages.length} page{pages.length !== 1 ? 's' : ''} scanned — tap a page to fix its crop
-              </p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+          {/* Bottom bar, overlaid on the camera */}
+          <div className="bg-gradient-to-t from-black/80 to-black/40 px-4 pt-3 pb-5">
+            {pages.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-3">
                 {pages.map((p) => (
                   <div key={p.id} className="relative shrink-0">
                     <button onClick={() => openEditCrop(p.id)} className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.processedCanvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-20 w-auto rounded border border-gray-200" />
+                      <img src={p.processedCanvas.toDataURL('image/jpeg', 0.6)} alt="" className="h-16 w-auto rounded border-2 border-white/80" />
                       {p.pending && (
                         <span className="absolute inset-0 flex items-center justify-center bg-black/30 rounded">
                           <Loader2 className="w-4 h-4 text-white animate-spin" />
@@ -770,16 +772,40 @@ export default function ScanClient() {
                   </div>
                 ))}
               </div>
+            )}
+
+            <div className="flex items-center gap-3">
               <button
-                onClick={() => setStep('details')}
-                className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium"
-                style={{ background: '#1e3a5f' }}
+                onClick={() => fileInputRef.current?.click()}
+                className="p-3 rounded-full bg-white/15 text-white"
               >
-                <Check className="w-4 h-4" />
-                Done Scanning — Continue
+                <ImagePlus className="w-5 h-5" />
               </button>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFilePicked} className="hidden" />
+
+              <button
+                onClick={capturePhoto}
+                disabled={!!cameraError || !videoReady}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 rounded-full text-white font-medium disabled:opacity-30 bg-white/20 border-2 border-white"
+              >
+                <Camera className="w-5 h-5" />
+                {videoReady ? 'Capture' : 'Starting…'}
+              </button>
+
+              {pages.length > 0 ? (
+                <button
+                  onClick={() => setStep('details')}
+                  className="flex items-center gap-1.5 px-4 py-3 rounded-full text-white font-medium"
+                  style={{ background: '#1e3a5f' }}
+                >
+                  <Check className="w-4 h-4" />
+                  Done
+                </button>
+              ) : (
+                <div className="w-[72px]" />
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
