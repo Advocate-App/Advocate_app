@@ -61,6 +61,8 @@ export default function ClosedCasesPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [advocateId, setAdvocateId] = useState<string | null>(null)
+  const [customActionId, setCustomActionId] = useState<string | null>(null)
+  const [customActionText, setCustomActionText] = useState('')
 
   const load = useCallback(async (advId: string) => {
     const supabase = createClient()
@@ -142,6 +144,8 @@ export default function ClosedCasesPage() {
     await supabase.from('hearings').update({ outcome_notes: action || null }).in('id', allHearingIds)
     setHearings(prev => prev.map(h => h.id === caseRowId ? { ...h, outcome_notes: action || null } : h))
     setSaving(null)
+    setCustomActionId(null)
+    setCustomActionText('')
   }
 
   if (loading) {
@@ -224,11 +228,35 @@ export default function ClosedCasesPage() {
                               className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
                             >Clear</button>
                           </div>
+                        ) : saving === h.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                        ) : customActionId === h.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={customActionText}
+                              onChange={(e) => setCustomActionText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && customActionText.trim()) setAction(h.id, h.allHearingIds, customActionText.trim())
+                                if (e.key === 'Escape') { setCustomActionId(null); setCustomActionText('') }
+                              }}
+                              placeholder="Type an action…"
+                              className="text-xs px-2 py-1 border border-gray-300 rounded-full bg-white text-gray-800 focus:outline-none w-32"
+                            />
+                            <button
+                              onClick={() => customActionText.trim() && setAction(h.id, h.allHearingIds, customActionText.trim())}
+                              disabled={!customActionText.trim()}
+                              className="text-xs px-2 py-1 rounded-full text-white bg-[#1e3a5f] disabled:opacity-40"
+                            >✓</button>
+                            <button
+                              onClick={() => { setCustomActionId(null); setCustomActionText('') }}
+                              className="text-[10px] text-gray-400 hover:text-gray-600"
+                            >Cancel</button>
+                          </div>
                         ) : (
                           <div className="flex flex-wrap gap-1 sm:justify-end">
-                            {saving === h.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                            ) : QUICK_ACTIONS.map(action => (
+                            {QUICK_ACTIONS.map(action => (
                               <button
                                 key={action}
                                 onClick={() => setAction(h.id, h.allHearingIds, action)}
@@ -237,6 +265,12 @@ export default function ClosedCasesPage() {
                                 {action}
                               </button>
                             ))}
+                            <button
+                              onClick={() => { setCustomActionId(h.id); setCustomActionText('') }}
+                              className="text-xs px-2.5 py-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:bg-gray-100 transition-colors whitespace-nowrap"
+                            >
+                              + Custom…
+                            </button>
                           </div>
                         )}
                       </div>
