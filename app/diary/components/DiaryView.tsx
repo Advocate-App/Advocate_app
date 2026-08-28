@@ -29,6 +29,7 @@ import {
   getCourtSortPriority,
   eCourtsDeepLink,
   formatCaseNumber,
+  formatCaseNumberShort,
   DISTRICT_STAGES,
   HC_STAGES,
 } from '@/lib/constants/courts'
@@ -1180,12 +1181,25 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const slipRightCases = slipSorted.slice(0, SLIP_ROWS_PER_COLUMN)
   const slipLeftCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN) // empty on a normal day
 
+  // Combines a linked group's case numbers into one compact string —
+  // "232, 234, 235/24" when they all share a year (the usual case),
+  // falling back to a full "num/yy" per case, comma-separated, when they
+  // don't. Used by both the table's Case No. column and the print slip.
+  function combineCaseNumbers(group: { caseData: { case_number: string; case_year: number | null } }[]): string {
+    const year = group[0].caseData.case_year
+    const sameYear = group.every((g) => g.caseData.case_year === year)
+    if (sameYear && year) {
+      return `${group.map((g) => g.caseData.case_number || '—').join(', ')}/${String(year).slice(-2)}`
+    }
+    return group.map((g) => formatCaseNumberShort(g.caseData.case_number, g.caseData.case_year) || '—').join(', ')
+  }
+
   function slipLineContent(h: HearingWithCase) {
     const groupSize = groupSizeById.get(h.id) || 1
     if (groupSize > 1) {
       const group = groupMembersByAnchor.get(h.id) || [h]
       const common = commonPartyById.get(h.id)
-      const caseNos = group.map((g) => formatCaseNumber(g.caseData.case_number, g.caseData.case_year)).join(', ')
+      const caseNos = combineCaseNumbers(group)
       let partyLine: string
       if (common?.side === 'plaintiff') {
         partyLine = `${slipShortName(common.name)} / ${group.map((g) => slipShortName(g.caseData.party_defendant)).join(', ')}`
@@ -1197,7 +1211,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       return { caseNos, partyLine }
     }
     return {
-      caseNos: formatCaseNumber(h.caseData.case_number, h.caseData.case_year),
+      caseNos: formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year),
       partyLine: `${slipShortName(h.caseData.party_plaintiff)} / ${slipShortName(h.caseData.party_defendant)}`,
     }
   }
@@ -1460,9 +1474,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 <tr style={{ background: '#e8e8e0' }}>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-16 md:w-24">Court</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20 md:w-24">Case No.</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 1</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-36">Party 2</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16 md:w-20">Case No.</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 1</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 2</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-14 md:w-28">Stage</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-20">Next</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-40 print:hidden">Action</th>
@@ -1497,6 +1511,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     // show and edit it once instead of one line per case.
                     const sameStage = group.every((g) => (g.stage_on_date || '') === (group[0].stage_on_date || ''))
                     const sameNext = group.every((g) => (g.next_hearing_date || '') === (group[0].next_hearing_date || ''))
+                    const sameCaseYear = group.every((g) => g.caseData.case_year === group[0].caseData.case_year)
 
                     return (
                       <Fragment key={h.id}>
@@ -1535,34 +1550,65 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             {!sameCourt && <div className="text-[9px] text-gray-400 mt-0.5">+ other courts</div>}
                           </td>
 
-                          {/* Case No. */}
+                          {/* Case No. — combined into one compact line when
+                              every linked case shares the same year, e.g.
+                              "232, 234, 235/24"; click goes to Edit (or a
+                              blank "—" box if no number's been entered
+                              yet, still clickable). */}
                           <td className="border border-gray-200 px-2 py-1.5 text-center align-middle">
-                            <div className="flex flex-col gap-1 justify-center">
-                              {group.map((g) => (
-                                <Link
-                                  key={g.id}
-                                  href={`/diary/cases/${g.case_id}`}
-                                  className="block font-mono text-xs hover:underline"
-                                  style={{ color: '#1e3a5f' }}
-                                  title={formatCaseNumber(g.caseData.case_number, g.caseData.case_year)}
-                                >
-                                  {formatCaseNumber(g.caseData.case_number, g.caseData.case_year)}
-                                </Link>
-                              ))}
-                            </div>
+                            {sameCaseYear ? (
+                              <Link
+                                href={`/diary/cases/${group[0].case_id}/edit`}
+                                className="block font-mono text-xs hover:underline"
+                                style={{ color: '#1e3a5f' }}
+                                title="Click to edit the lead case"
+                              >
+                                {combineCaseNumbers(group)}
+                              </Link>
+                            ) : (
+                              <div className="flex flex-col gap-1 justify-center">
+                                {group.map((g) => (
+                                  <Link
+                                    key={g.id}
+                                    href={`/diary/cases/${g.case_id}/edit`}
+                                    className="block font-mono text-xs hover:underline"
+                                    style={{ color: '#1e3a5f' }}
+                                    title="Click to edit"
+                                  >
+                                    {formatCaseNumberShort(g.caseData.case_number, g.caseData.case_year) || '—'}
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
                           </td>
 
-                          {/* Party 1 — the shared party shows once; the
-                              other side's names run together and wrap
-                              naturally, e.g. "Rahul, Ganesh" / "Sehjal" */}
+                          {/* Party 1 — the shared party shows once (click to
+                              set a date for the whole group); the other
+                              side's names run together and wrap naturally,
+                              e.g. "Rahul, Ganesh" / "Sehjal" — click any
+                              one to set that case's own date. */}
                           <td className="border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 align-middle">
                             {common?.side === 'plaintiff' ? (
-                              <span className="text-sm font-medium" style={{ color: '#1e3a5f' }} title="Linked cases — same plaintiff">{common.name}</span>
+                              <button
+                                onClick={() => { setEditingNextDate(group[0].id); setEditingNextDateGroupIds(group.map((g) => g.id)) }}
+                                className="text-sm font-medium text-left hover:underline"
+                                style={{ color: '#1e3a5f' }}
+                                title="Click to set the next date for all linked cases"
+                              >
+                                {common.name}
+                              </button>
                             ) : (
                               <div className="text-sm leading-snug">
                                 {group.map((g, i) => (
                                   <span key={g.id}>
-                                    <Link href={`/diary/cases/${g.case_id}`} className="hover:underline font-medium" style={{ color: '#1e3a5f' }}>{g.caseData.party_plaintiff}</Link>
+                                    <button
+                                      onClick={() => { setEditingNextDate(g.id); setEditingNextDateGroupIds(null) }}
+                                      className="hover:underline font-medium"
+                                      style={{ color: '#1e3a5f' }}
+                                      title="Click to set this case's next date"
+                                    >
+                                      {g.caseData.party_plaintiff}
+                                    </button>
                                     {i < group.length - 1 ? ', ' : ''}
                                   </span>
                                 ))}
@@ -1573,12 +1619,24 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           {/* Party 2 — mirrors Party 1 */}
                           <td className="border border-gray-200 px-2 py-1.5 max-w-[144px] bg-amber-50/30 align-middle">
                             {common?.side === 'defendant' ? (
-                              <span className="text-sm font-medium text-gray-700" title="Linked cases — same defendant">{common.name}</span>
+                              <button
+                                onClick={() => { setEditingNextDate(group[0].id); setEditingNextDateGroupIds(group.map((g) => g.id)) }}
+                                className="text-sm font-medium text-left text-gray-700 hover:underline"
+                                title="Click to set the next date for all linked cases"
+                              >
+                                {common.name}
+                              </button>
                             ) : (
                               <div className="text-sm leading-snug text-gray-700">
                                 {group.map((g, i) => (
                                   <span key={g.id}>
-                                    <Link href={`/diary/cases/${g.case_id}`} className="hover:underline hover:text-[#1e3a5f]">{g.caseData.party_defendant}</Link>
+                                    <button
+                                      onClick={() => { setEditingNextDate(g.id); setEditingNextDateGroupIds(null) }}
+                                      className="hover:underline hover:text-[#1e3a5f]"
+                                      title="Click to set this case's next date"
+                                    >
+                                      {g.caseData.party_defendant}
+                                    </button>
                                     {i < group.length - 1 ? ', ' : ''}
                                   </span>
                                 ))}
@@ -1670,26 +1728,40 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </span>
                         </td>
 
-                        {/* Case No. */}
+                        {/* Case No. — click to edit the case; a blank/not-
+                            yet-allotted number is still a clickable box */}
                         <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm md:text-base text-gray-800">
                           <Link
-                            href={`/diary/cases/${h.case_id}`}
+                            href={`/diary/cases/${h.case_id}/edit`}
                             className="inline-block max-w-[70px] md:max-w-none truncate align-bottom font-bold hover:underline"
                             style={{ color: '#1e3a5f' }}
-                            title={formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
+                            title="Click to edit"
                           >
-                            {formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}
+                            {formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year) || '—'}
                           </Link>
                         </td>
 
-                        {/* Party 1 */}
+                        {/* Party 1 — click to set this case's next date */}
                         <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate hover:underline" style={{ color: '#1e3a5f' }} title={h.caseData.party_plaintiff}>{h.caseData.party_plaintiff}</Link>
+                          <button
+                            onClick={() => { setEditingNextDate(h.id); setEditingNextDateGroupIds(null) }}
+                            className="block w-full text-left truncate hover:underline"
+                            style={{ color: '#1e3a5f' }}
+                            title="Click to set the next date"
+                          >
+                            {h.caseData.party_plaintiff}
+                          </button>
                         </td>
 
-                        {/* Party 2 */}
+                        {/* Party 2 — same as Party 1 */}
                         <td className="border border-gray-200 px-2 py-2 text-base font-medium text-gray-800 max-w-[144px]">
-                          <Link href={`/diary/cases/${h.case_id}`} className="block truncate text-gray-700 hover:text-[#1e3a5f] hover:underline" title={h.caseData.party_defendant}>{h.caseData.party_defendant}</Link>
+                          <button
+                            onClick={() => { setEditingNextDate(h.id); setEditingNextDateGroupIds(null) }}
+                            className="block w-full text-left truncate text-gray-700 hover:text-[#1e3a5f] hover:underline"
+                            title="Click to set the next date"
+                          >
+                            {h.caseData.party_defendant}
+                          </button>
                         </td>
 
                         {/* Stage */}

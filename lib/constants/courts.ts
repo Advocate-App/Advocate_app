@@ -157,6 +157,15 @@ export function formatCaseNumber(num: string, year: number | null): string {
   return `${num}/${year}`
 }
 
+// Same as formatCaseNumber but with a 2-digit year (232/26 instead of
+// 232/2026) — used in tight spaces like the Diary table and print slip,
+// where the room saved lets the case number column shrink and gives
+// party names more space to breathe.
+export function formatCaseNumberShort(num: string, year: number | null): string {
+  if (!year) return num
+  return `${num}/${String(year).slice(-2)}`
+}
+
 export function getCourtShortLabel(code: string): string {
   const map: Record<string, string> = {
     // Udaipur
