@@ -616,10 +616,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   async function saveStage(hearingId: string, newStage: string) {
     const supabase = createClient()
+    // Recording a stage is just as clear a sign the hearing was actually
+    // attended as giving a next date — mark it happened here too, so
+    // "attended" in the day's summary reflects real work done, not a
+    // separate checkbox nobody remembers to tick.
     await supabase.from('hearings').update({
       stage_on_date: newStage,
       set_by_advocate_id: advocateId,
       set_by_name: advocateName || null,
+      happened: true,
     }).eq('id', hearingId)
     const hearing = hearings.find(h => h.id === hearingId)
     if (hearing) {
@@ -628,17 +633,24 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       await supabase.from('cases').update(updates).eq('id', hearing.case_id)
     }
     setEditingStage(null)
+    setExpandedCaseId(null) // any action closes the open history panel
     // Optimistic update — no refetch, no scroll jump
-    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage, set_by_name: advocateName || null } : h))
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage, set_by_name: advocateName || null, happened: true } : h))
   }
 
   async function saveNextDate(hearingId: string, newDate: string) {
     const supabase = createClient()
     const hearing = hearings.find(h => h.id === hearingId)
+    // Giving a next date means this hearing was actually attended today —
+    // mark it "happened" at the same time, instead of leaving that as a
+    // separate manual checkbox nobody remembers to tick. That's what
+    // "attended" in the day's summary is meant to count.
+    const markHappened = !!newDate
     await supabase.from('hearings').update({
       next_hearing_date: newDate || null,
       set_by_advocate_id: advocateId,
       set_by_name: advocateName || null,
+      ...(markHappened ? { happened: true } : {}),
     }).eq('id', hearingId)
     if (newDate && hearing) {
       const { data: existing } = await supabase
@@ -657,8 +669,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       }
     }
     setEditingNextDate(null)
+    setExpandedCaseId(null) // any action closes the open history panel
     // Optimistic update — no refetch, no scroll jump
-    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, next_hearing_date: newDate || null, set_by_name: advocateName || null } : h))
+    setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, next_hearing_date: newDate || null, set_by_name: advocateName || null, happened: markHappened ? true : h.happened } : h))
   }
 
   async function saveComment(hearingId: string) {
@@ -669,6 +682,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     setCommentHearingId(null)
     setCommentText('')
     setCommentSaving(false)
+    setExpandedCaseId(null) // any action closes the open history panel
     // Optimistic update — no refetch, no scroll jump
     setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, outcome_notes: text } : h))
   }
@@ -1473,7 +1487,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
-                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-16 md:w-24">Court</th>
+                  <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-[48px] md:w-[72px]">Court</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16 md:w-20">Case No.</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 1</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 2</th>
@@ -1552,7 +1566,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               this row stack to several lines. */}
                           <td className="border border-gray-200 px-2 py-1.5 align-middle">
                             <span
-                              className="inline-block max-w-[60px] md:max-w-[130px] truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-sm font-semibold text-gray-700"
+                              className="inline-block max-w-[45px] md:max-w-[98px] truncate align-bottom px-1.5 py-0.5 rounded text-[9px] md:text-[10.5px] font-semibold text-gray-700"
                               style={{ background: anchorCourtBg }}
                               title={courtShortLabel(anchorCourtCode, group[0].caseData.court_name)}
                             >
@@ -1710,14 +1724,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     <>
                       <tr
                         key={h.id}
-                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                        className="hover:bg-gray-50/50 transition-colors"
                         style={{ borderLeft: `4px solid ${borderColor}` }}
-                        onClick={(e) => {
-                          // Don't expand if clicking interactive elements
-                          const tag = (e.target as HTMLElement).tagName
-                          if (['SELECT','INPUT','BUTTON','A'].includes(tag)) return
-                          toggleHistory(h.case_id)
-                        }}
                       >
                         {/* Pre Date */}
                         <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm text-gray-600">
@@ -1728,15 +1736,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           )}
                         </td>
 
-                        {/* Court Name */}
+                        {/* Court Name — click to open/close this case's
+                            history, right here where you clicked (not
+                            anywhere else in the row anymore) */}
                         <td className="border border-gray-200 px-2 py-2">
-                          <span
-                            className="inline-block max-w-[60px] md:max-w-[130px] truncate align-bottom px-1.5 py-0.5 rounded text-xs md:text-base font-semibold text-gray-700"
+                          <button
+                            onClick={() => toggleHistory(h.case_id)}
+                            className="inline-block max-w-[45px] md:max-w-[98px] truncate align-bottom px-1.5 py-0.5 rounded text-[9px] md:text-[12px] font-semibold text-gray-700 hover:opacity-80 transition-opacity"
                             style={{ background: courtBg }}
-                            title={courtShortLabel(courtCode, h.caseData.court_name)}
+                            title={`${courtShortLabel(courtCode, h.caseData.court_name)} — click for case history`}
                           >
                             {courtShortLabel(courtCode, h.caseData.court_name)}
-                          </span>
+                          </button>
                         </td>
 
                         {/* Case No. — click to edit the case; a blank/not-
@@ -1799,13 +1810,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             {caseHistory.length === 0 ? (
                               <p className="text-xs text-gray-400">No history found.</p>
                             ) : (
-                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                              <div className="flex flex-col gap-1">
                                 {caseHistory.map(ch => (
-                                  <span key={ch.id} className="text-xs text-gray-600 flex items-center gap-1">
+                                  <div key={ch.id} className="text-xs text-gray-600">
                                     <span className="font-mono text-gray-500">{formatDD_MM(ch.hearing_date)}</span>
-                                    {ch.stage_on_date && <span className="text-gray-800">— {ch.stage_on_date}</span>}
-                                    {ch.outcome_notes && <span className="text-blue-600 italic">({ch.outcome_notes})</span>}
-                                  </span>
+                                    {ch.stage_on_date && <span className="text-gray-800"> — {ch.stage_on_date}</span>}
+                                    {ch.outcome_notes && <span className="text-blue-600 italic"> ({ch.outcome_notes})</span>}
+                                  </div>
                                 ))}
                               </div>
                             )}
