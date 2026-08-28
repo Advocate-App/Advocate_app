@@ -1990,16 +1990,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     const { caseNos, partyLine } = slipLineContent(h)
                     return (
                       <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
-                        {/* Fixed court + case-number prefix, then party names +
-                            stage in a single line that shrinks and truncates
-                            with an ellipsis rather than wrapping to a second
-                            line — a slip entry should always be one line.
-                            Linked cases collapse into one line here too,
-                            case numbers comma-separated. */}
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', flexWrap: 'nowrap', overflow: 'hidden' }}>
+                        {/* Fixed court + case-number prefix, then party
+                            names + stage. Names are never truncated — they
+                            wrap onto a second line if the entry is long
+                            (a linked group, or just a long name) rather
+                            than getting cut off with an ellipsis. */}
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
                           <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#555', flexShrink: 0 }}>{caseNos}</span>
-                          <span style={{ color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: '#222', minWidth: 0, flex: '1 1 auto', wordBreak: 'break-word' }}>
                             {partyLine}
                             {h.caseData.case_stage && <span style={{ fontSize: '10px', color: '#888' }}> ({stageAbbrev(h.caseData.case_stage)})</span>}
                           </span>
