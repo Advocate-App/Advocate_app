@@ -1487,7 +1487,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
-                  <th className="border border-gray-300 px-1 py-2 text-xs font-bold text-gray-700 text-left w-[36px] md:w-[56px]">Court</th>
+                  <th className="border border-gray-300 px-1.5 py-2 text-xs font-bold text-gray-700 text-left whitespace-nowrap">Court</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16 md:w-20">Case No.</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 1</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 2</th>
@@ -1564,9 +1564,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                               value doesn't look like it's floating with
                               empty space below it when other columns in
                               this row stack to several lines. */}
-                          <td className="border border-gray-200 px-1 py-1.5 align-middle">
+                          <td className="border border-gray-200 px-1.5 py-1.5 align-middle whitespace-nowrap">
                             <span
-                              className="inline-block max-w-[34px] md:max-w-[54px] truncate align-bottom px-1 py-0.5 rounded text-[9px] md:text-[10.5px] font-semibold text-gray-700"
+                              className="inline-block whitespace-nowrap align-bottom px-1 py-0.5 rounded text-[9px] md:text-[10.5px] font-semibold text-gray-700"
                               style={{ background: anchorCourtBg }}
                               title={courtShortLabel(anchorCourtCode, group[0].caseData.court_name)}
                             >
@@ -1739,10 +1739,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                         {/* Court Name — click to open/close this case's
                             history, right here where you clicked (not
                             anywhere else in the row anymore) */}
-                        <td className="border border-gray-200 px-1 py-2">
+                        <td className="border border-gray-200 px-1.5 py-2 whitespace-nowrap">
                           <button
                             onClick={() => toggleHistory(h.case_id)}
-                            className="inline-block max-w-[34px] md:max-w-[54px] truncate align-bottom px-1 py-0.5 rounded text-[9px] md:text-[12px] font-semibold text-gray-700 hover:opacity-80 transition-opacity"
+                            className="inline-block whitespace-nowrap align-bottom px-1 py-0.5 rounded text-[9px] md:text-[12px] font-semibold text-gray-700 hover:opacity-80 transition-opacity"
                             style={{ background: courtBg }}
                             title={`${courtShortLabel(courtCode, h.caseData.court_name)} — click for case history`}
                           >
