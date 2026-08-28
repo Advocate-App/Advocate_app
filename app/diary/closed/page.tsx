@@ -25,7 +25,10 @@ interface ClosedHearing {
   allHearingIds: string[]
 }
 
-const FINAL_STAGES = ['Disposed', 'For Orders', 'Judgment', 'Judgment Reserved']
+// "Disposed" and "For Orders" were merged into one stage, "Ordered/Disposed"
+// — kept the old names here too so hearings recorded before that rename
+// still show up.
+const FINAL_STAGES = ['Ordered/Disposed', 'Disposed', 'For Orders', 'Judgment', 'Judgment Reserved']
 const QUICK_ACTIONS = ['Appeal Filed', 'Execution', 'Got Order Copy', 'Do Nothing']
 
 const SECTIONS: { key: string; label: string; color: string; bg: string; border: string }[] = [

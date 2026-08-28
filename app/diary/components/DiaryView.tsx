@@ -639,6 +639,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       if (newStage === 'Ordered/Disposed') {
         updates.status = 'disposed'
         if (disposalDate) updates.disposal_date = disposalDate
+      } else if (hearing.caseData.status === 'disposed') {
+        // Moving the stage away from Ordered/Disposed (correcting a
+        // mistake, or the case genuinely reopened) un-disposes it —
+        // otherwise it'd stay marked non-active forever.
+        updates.status = 'active'
       }
       await supabase.from('cases').update(updates).eq('id', hearing.case_id)
     }

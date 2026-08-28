@@ -578,6 +578,10 @@ export default function CaseDetailPage() {
       if (resolvedStage === 'Ordered/Disposed') {
         caseUpdates.status = 'disposed'
         caseUpdates.disposal_date = hearingForm.hearing_date
+      } else if (caseData.status === 'disposed') {
+        // Moving the stage away from Ordered/Disposed un-disposes the
+        // case — otherwise it'd stay marked non-active forever.
+        caseUpdates.status = 'active'
       }
       await supabase.from('cases').update(caseUpdates).eq('id', id)
       setCaseData({ ...caseData, case_stage: resolvedStage, status: caseUpdates.status || caseData.status, disposal_date: caseUpdates.disposal_date || caseData.disposal_date })
