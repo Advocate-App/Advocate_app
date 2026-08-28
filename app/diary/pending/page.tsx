@@ -67,7 +67,7 @@ export default function PendingPage() {
 
     // Keep only advocate's active cases; deduplicate to most recent hearing per case
     const seen = new Set<string>()
-    const rows: PendingCase[] = []
+    let rows: PendingCase[] = []
     for (const h of data) {
       if (!h.cases || h.cases.advocate_id !== adv.id) continue
       if (h.cases.status === 'disposed') continue
@@ -86,6 +86,25 @@ export default function PendingPage() {
         plaintiff: h.cases.party_plaintiff,
         defendant: h.cases.party_defendant,
       })
+    }
+
+    // A case can end up with a stray old hearing row whose own
+    // next_hearing_date was never linked, even though a genuinely later
+    // hearing already exists for it (e.g. added a fresh hearing instead
+    // of using "give next date" on the old one). Those aren't actually
+    // pending — drop any case that already has a hearing dated after
+    // today, regardless of whether that specific old row points to it.
+    if (rows.length > 0) {
+      const futureHearings = await fetchAllRows<{ case_id: string }>((from, to) =>
+        supabase
+          .from('hearings')
+          .select('case_id')
+          .in('case_id', rows.map((r) => r.caseId))
+          .gt('hearing_date', today)
+          .range(from, to)
+      )
+      const hasFuture = new Set(futureHearings.map((f) => f.case_id))
+      rows = rows.filter((r) => !hasFuture.has(r.caseId))
     }
 
     setItems(rows)
