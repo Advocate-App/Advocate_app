@@ -1644,16 +1644,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
                           {/* Case No. — combined into one compact line when
                               every linked case shares the same year, e.g.
-                              "232, 234, 235/24"; click goes to Edit (or a
+                              "232, 234, 235/24"; click opens the case (or a
                               blank "—" box if no number's been entered
                               yet, still clickable). */}
                           <td className="border border-gray-200 px-2 py-1.5 text-center align-middle">
                             {sameCaseYear ? (
                               <Link
-                                href={`/diary/cases/${group[0].case_id}/edit`}
+                                href={`/diary/cases/${group[0].case_id}`}
                                 className="block font-mono text-xs hover:underline"
                                 style={{ color: '#1e3a5f' }}
-                                title="Click to edit the lead case"
+                                title="Click to open the lead case"
                               >
                                 {combineCaseNumbers(group)}
                               </Link>
@@ -1662,10 +1662,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                                 {group.map((g) => (
                                   <Link
                                     key={g.id}
-                                    href={`/diary/cases/${g.case_id}/edit`}
+                                    href={`/diary/cases/${g.case_id}`}
                                     className="block font-mono text-xs hover:underline"
                                     style={{ color: '#1e3a5f' }}
-                                    title="Click to edit"
+                                    title="Click to open"
                                   >
                                     {formatCaseNumberShort(g.caseData.case_number, g.caseData.case_year) || '—'}
                                   </Link>
@@ -1817,14 +1817,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           </button>
                         </td>
 
-                        {/* Case No. — click to edit the case; a blank/not-
-                            yet-allotted number is still a clickable box */}
+                        {/* Case No. — click to open the case (Overview);
+                            a blank/not-yet-allotted number is still a
+                            clickable box, so it's easy to give it one */}
                         <td className="border border-gray-200 px-2 py-2 text-center font-mono text-sm md:text-base text-gray-800">
                           <Link
-                            href={`/diary/cases/${h.case_id}/edit`}
+                            href={`/diary/cases/${h.case_id}`}
                             className="inline-block max-w-[70px] md:max-w-none truncate align-bottom font-bold hover:underline"
                             style={{ color: '#1e3a5f' }}
-                            title="Click to edit"
+                            title="Click to open"
                           >
                             {formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year) || '—'}
                           </Link>
