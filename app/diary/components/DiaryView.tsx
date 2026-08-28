@@ -1512,25 +1512,36 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     const sameStage = group.every((g) => (g.stage_on_date || '') === (group[0].stage_on_date || ''))
                     const sameNext = group.every((g) => (g.next_hearing_date || '') === (group[0].next_hearing_date || ''))
                     const sameCaseYear = group.every((g) => g.caseData.case_year === group[0].caseData.case_year)
+                    const samePreDate = group.every((g) => (g.previous_hearing_date || '') === (group[0].previous_hearing_date || '') && g.purpose === group[0].purpose)
 
                     return (
                       <Fragment key={h.id}>
                         <tr className="hover:bg-amber-50/20 transition-colors" style={{ borderLeft: '4px solid #f59e0b' }}>
-                          {/* Pre. — vertically centered as a block, so a
-                              short stack doesn't look pinned to the top of
-                              a taller row */}
+                          {/* Pre. — one merged value when every linked case
+                              shares the same previous date (the usual
+                              case), else one line per case */}
                           <td className="border border-gray-200 px-2 py-1.5 text-center align-middle">
-                            <div className="flex flex-col gap-1 justify-center">
-                              {group.map((g) => (
-                                <div key={g.id} className="font-mono text-xs text-gray-600">
-                                  {g.purpose === 'Case Commenced' ? (
-                                    <span className="inline-block px-1 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">NEW</span>
-                                  ) : (
-                                    formatDD_MM(g.previous_hearing_date)
-                                  )}
-                                </div>
-                              ))}
-                            </div>
+                            {samePreDate ? (
+                              <div className="font-mono text-xs text-gray-600">
+                                {group[0].purpose === 'Case Commenced' ? (
+                                  <span className="inline-block px-1 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">NEW</span>
+                                ) : (
+                                  formatDD_MM(group[0].previous_hearing_date)
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1 justify-center">
+                                {group.map((g) => (
+                                  <div key={g.id} className="font-mono text-xs text-gray-600">
+                                    {g.purpose === 'Case Commenced' ? (
+                                      <span className="inline-block px-1 py-0.5 rounded text-[10px] font-bold text-white bg-emerald-500">NEW</span>
+                                    ) : (
+                                      formatDD_MM(g.previous_hearing_date)
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </td>
 
                           {/* Court — shown once; linked cases are almost
