@@ -114,7 +114,7 @@ interface SearchResult {
   party_defendant?: string
 }
 
-const FINAL_STAGES = new Set(['Disposed', 'For Orders', 'Judgment', 'Judgment Reserved'])
+const FINAL_STAGES = new Set(['Ordered/Disposed', 'Judgment', 'Judgment Reserved'])
 function isFinalStage(stage: string | null): boolean {
   return !!stage && FINAL_STAGES.has(stage)
 }
@@ -134,9 +134,8 @@ const STAGE_ABBREV: Record<string, string> = {
   'Judgment': 'Judg',
   'Execution': 'Exec',
   'Lok Adalat': 'LA',
-  'Disposed': 'Disp',
+  'Ordered/Disposed': 'Ord/Disp',
   'Adjourned': 'Adj',
-  'For Orders': 'FO',
   'Admission': 'Adm',
   'Regular Hearing': 'RH',
   'Final Hearing': 'FH',
@@ -629,7 +628,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     const hearing = hearings.find(h => h.id === hearingId)
     if (hearing) {
       const updates: Record<string, string> = { case_stage: newStage }
-      if (newStage === 'Disposed') updates.status = 'disposed'
+      if (newStage === 'Ordered/Disposed') updates.status = 'disposed'
       await supabase.from('cases').update(updates).eq('id', hearing.case_id)
     }
     setEditingStage(null)

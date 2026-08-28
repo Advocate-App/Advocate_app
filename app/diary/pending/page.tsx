@@ -116,45 +116,49 @@ export default function PendingPage() {
   async function saveRow(item: PendingCase) {
     const nd = nextDate[item.hearingId]
     const sg = stage[item.hearingId]
-    if (!nd) return
+    const wrappedUp = sg === 'Ordered/Disposed'
+    // A wrapped-up case doesn't need a next date — everything else still
+    // does, that's what "pending" is asking for.
+    if (!nd && !wrappedUp) return
     setSavingId(item.hearingId)
     const supabase = createClient()
 
     // Update this hearing: set next_hearing_date + optional stage
     await supabase.from('hearings').update({
-      next_hearing_date: nd,
+      ...(nd ? { next_hearing_date: nd } : {}),
       ...(sg !== undefined ? { stage_on_date: sg || null } : {}),
       set_by_advocate_id: me?.id || null,
       set_by_name: me?.name || null,
     }).eq('id', item.hearingId)
 
-    // Check if a hearing already exists for that next date
-    const { data: existing } = await supabase
-      .from('hearings').select('id').eq('case_id', item.caseId).eq('hearing_date', nd).limit(1)
-    if (!existing || existing.length === 0) {
-      await supabase.from('hearings').insert({
-        case_id: item.caseId,
-        hearing_date: nd,
-        previous_hearing_date: item.hearingDate,
-        appearing_advocate_name: 'self',
-        happened: false,
-        set_by_advocate_id: me?.id || null,
-        set_by_name: me?.name || null,
-      })
+    if (nd) {
+      // Check if a hearing already exists for that next date
+      const { data: existing } = await supabase
+        .from('hearings').select('id').eq('case_id', item.caseId).eq('hearing_date', nd).limit(1)
+      if (!existing || existing.length === 0) {
+        await supabase.from('hearings').insert({
+          case_id: item.caseId,
+          hearing_date: nd,
+          previous_hearing_date: item.hearingDate,
+          appearing_advocate_name: 'self',
+          happened: false,
+          set_by_advocate_id: me?.id || null,
+          set_by_name: me?.name || null,
+        })
+      }
+    }
+
+    // Ordered/Disposed marks the case non-active automatically — that's
+    // what actually takes it off this list (and everywhere else), instead
+    // of a separate "Disposed" button.
+    if (wrappedUp) {
+      await supabase.from('cases').update({ status: 'disposed', case_stage: sg }).eq('id', item.caseId)
     }
 
     // Remove from list
     setItems(prev => prev.filter(r => r.hearingId !== item.hearingId))
     setNextDate(p => { const n = { ...p }; delete n[item.hearingId]; return n })
     setStage(p => { const n = { ...p }; delete n[item.hearingId]; return n })
-    setSavingId(null)
-  }
-
-  async function markDisposed(item: PendingCase) {
-    setSavingId(item.hearingId)
-    const supabase = createClient()
-    await supabase.from('cases').update({ status: 'disposed' }).eq('id', item.caseId)
-    setItems(prev => prev.filter(r => r.hearingId !== item.hearingId))
     setSavingId(null)
   }
 
@@ -205,8 +209,8 @@ export default function PendingPage() {
           </div>
           <p className="text-sm text-gray-400 mt-0.5">
             {!loading && items.length > 0
-              ? `${items.length} case${items.length !== 1 ? 's' : ''} pending${courtFilter !== 'all' ? ` · ${filtered.length} shown for ${courtFilter}` : ''} — give each a next date or mark disposed.`
-              : 'Cases where a hearing has passed but no next date is set. Give each a next date or mark disposed.'}
+              ? `${items.length} case${items.length !== 1 ? 's' : ''} pending${courtFilter !== 'all' ? ` · ${filtered.length} shown for ${courtFilter}` : ''} — give each a next date, or set its stage to Ordered/Disposed.`
+              : 'Cases where a hearing has passed but no next date is set. Give each a next date, or set its stage to Ordered/Disposed.'}
           </p>
         </div>
         {items.length > 0 && (
@@ -325,34 +329,27 @@ export default function PendingPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Next Date *</label>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Next Date {sg === 'Ordered/Disposed' ? '' : '*'}
+                    </label>
                     <input
                       type="date"
                       value={nd}
+                      disabled={sg === 'Ordered/Disposed'}
                       onChange={e => setNextDate(p => ({ ...p, [item.hearingId]: e.target.value }))}
-                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f] disabled:bg-gray-50 disabled:text-gray-400"
                       style={{ minHeight: '44px' }}
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => saveRow(item)}
-                    disabled={!nd || savingId === item.hearingId}
-                    className="flex-1 px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
-                    style={{ minHeight: '44px' }}
-                  >
-                    {savingId === item.hearingId ? '…' : 'Set Date'}
-                  </button>
-                  <button
-                    onClick={() => markDisposed(item)}
-                    disabled={savingId === item.hearingId}
-                    className="flex-1 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-30"
-                    style={{ minHeight: '44px' }}
-                  >
-                    Disposed
-                  </button>
-                </div>
+                <button
+                  onClick={() => saveRow(item)}
+                  disabled={(!nd && sg !== 'Ordered/Disposed') || savingId === item.hearingId}
+                  className="w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
+                  style={{ minHeight: '44px' }}
+                >
+                  {savingId === item.hearingId ? '…' : sg === 'Ordered/Disposed' ? 'Mark Ordered/Disposed' : 'Set Date'}
+                </button>
               </div>
             )
           })}
@@ -411,25 +408,19 @@ export default function PendingPage() {
                       <input
                         type="date"
                         value={nd}
+                        disabled={sg === 'Ordered/Disposed'}
                         onChange={e => setNextDate(p => ({ ...p, [item.hearingId]: e.target.value }))}
-                        className="w-full px-1.5 py-1 border border-gray-200 rounded text-xs bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
+                        className="w-full px-1.5 py-1 border border-gray-200 rounded text-xs bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f] disabled:bg-gray-50 disabled:text-gray-400"
                       />
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 justify-end">
+                      <div className="flex items-center justify-end">
                         <button
                           onClick={() => saveRow(item)}
-                          disabled={!nd || savingId === item.hearingId}
+                          disabled={(!nd && sg !== 'Ordered/Disposed') || savingId === item.hearingId}
                           className="px-2.5 py-1 rounded text-xs font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
                         >
-                          {savingId === item.hearingId ? '…' : 'Set Date'}
-                        </button>
-                        <button
-                          onClick={() => markDisposed(item)}
-                          disabled={savingId === item.hearingId}
-                          className="px-2.5 py-1 rounded text-xs font-medium text-gray-500 border border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-30"
-                        >
-                          Disposed
+                          {savingId === item.hearingId ? '…' : sg === 'Ordered/Disposed' ? 'Mark Ordered/Disposed' : 'Set Date'}
                         </button>
                       </div>
                     </td>

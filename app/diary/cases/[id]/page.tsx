@@ -569,10 +569,13 @@ export default function CaseDetailPage() {
       await supabase.from('hearings').insert(row)
     }
 
-    // Also update case_stage if provided
+    // Also update case_stage if provided — and if it's the wrap-up stage,
+    // mark the case non-active automatically, same as the Diary does.
     if (resolvedStage && caseData) {
-      await supabase.from('cases').update({ case_stage: resolvedStage }).eq('id', id)
-      setCaseData({ ...caseData, case_stage: resolvedStage })
+      const caseUpdates: { case_stage: string; status?: string } = { case_stage: resolvedStage }
+      if (resolvedStage === 'Ordered/Disposed') caseUpdates.status = 'disposed'
+      await supabase.from('cases').update(caseUpdates).eq('id', id)
+      setCaseData({ ...caseData, case_stage: resolvedStage, status: caseUpdates.status || caseData.status })
     }
 
     // Auto-create next hearing if next date is provided (so it shows in

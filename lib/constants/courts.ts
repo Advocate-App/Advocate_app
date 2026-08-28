@@ -93,14 +93,18 @@ export const DISTRICT_CASE_TYPES = [
   'Land Acquisition Reference', 'Arbitration', 'Other',
 ]
 
+// "Disposed" and "For Orders" used to be two separate stages, plus people
+// free-typed variants like "Order me" via Custom... — all of them meant
+// the same practical thing (case wrapped up, stop tracking it as active),
+// so they're now one stage: selecting it auto-marks the case non-active.
 export const DISTRICT_STAGES = [
   'Custom...',
   'Summons', 'Appearance', 'Written Statement', 'Issues',
   'Plaintiff Evidence', 'Defendant Evidence', 'Arguments',
   'Judgment Reserved', 'Judgment', 'Execution',
   '805', 'Arg', 'EMI', 'CPL', 'Sin', 'Eny', 'Ent', 'PO', 'Jaach',
-  'Lok Adalat', 'Disposed',
-  'Adjourned', 'For Orders', 'Other',
+  'Lok Adalat', 'Ordered/Disposed',
+  'Adjourned', 'Other',
 ]
 
 export const HC_BENCHES = [
@@ -125,8 +129,8 @@ export const HC_STAGES = [
   'Custom...',
   'Admission', 'Motion', 'Regular Hearing', 'Final Hearing',
   'Arguments', 'Judgment Reserved', 'Judgment',
-  'For Orders', 'Notice', 'Service Complete',
-  'Counter Affidavit', 'Rejoinder', 'Lok Adalat', 'Disposed', 'Other',
+  'Notice', 'Service Complete',
+  'Counter Affidavit', 'Rejoinder', 'Lok Adalat', 'Ordered/Disposed', 'Other',
 ]
 
 export const CLIENT_SIDES_DISTRICT = [
