@@ -473,52 +473,38 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     loadAdvocate()
   }, [])
 
-  // Case IDs for this advocate (or, for a junior, both senior advocates'
-  // combined) — fetched once per advocate, not on every single calendar
-  // open. Re-querying every one of ~1000+ cases each time any date picker
-  // opened was the main reason it started feeling slow.
-  const [cachedCaseIds, setCachedCaseIds] = useState<string[] | null>(null)
   const fetchedMonthsRef = useRef<Set<string>>(new Set())
 
-  useEffect(() => {
-    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) { setCachedCaseIds(null); return }
-    setCachedCaseIds(null)
-    fetchedMonthsRef.current = new Set()
-    const supabase = createClient()
-    fetchAllRows<{ id: string }>((from, to) =>
-      supabase.from('cases').select('id').in('advocate_id', visibleAdvocateIds).range(from, to)
-    ).then((rows) => setCachedCaseIds(rows.map((r) => r.id)))
-      .catch((err) => console.error('case id cache error:', err))
-  }, [visibleAdvocateIds])
-
   // Fetch hearing counts for a given month — this advocate's hearings (or,
-  // for a junior, both senior advocates' combined). Takes the month to
-  // fetch explicitly so both the month strip (selectedDate's month) and
-  // the "jump to any date" calendar (whatever month it's browsing, which
-  // can be a different one) can each pull counts for their own month.
-  // Skips the network round-trip entirely if that month's already been
-  // fetched — pass force to refetch anyway (e.g. right after adding a
-  // hearing, when the cached count for that month is now stale).
+  // for a junior, both senior advocates' combined). One query, filtered
+  // server-side by joining to `cases` and matching advocate_id there —
+  // this used to first fetch every one of this advocate's case ids
+  // (1000+ rows) and then re-query hearings in batches of 200 case ids
+  // at a time, which is what made the "next date" calendar feel so slow
+  // to open. Takes the month to fetch explicitly so both the month strip
+  // (selectedDate's month) and the "jump to any date" calendar (whatever
+  // month it's browsing, which can be a different one) can each pull
+  // counts for their own month. Skips the round-trip entirely if that
+  // month's already been fetched — pass force to refetch anyway (e.g.
+  // right after adding a hearing, when the cached count is now stale).
   const fetchMonthDates = useCallback(async (monthDate: Date, force = false) => {
-    if (!cachedCaseIds || cachedCaseIds.length === 0) return
+    if (!visibleAdvocateIds || visibleAdvocateIds.length === 0) return
     const monthKey = format(monthDate, 'yyyy-MM')
     if (!force && fetchedMonthsRef.current.has(monthKey)) return
     try {
       const supabase = createClient()
       const start = toYMD(startOfMonth(monthDate))
       const end = toYMD(endOfMonth(monthDate))
-      // PostgREST URL limit — batch if needed
-      const BATCH = 200
+      const { data, error } = await supabase
+        .from('hearings')
+        .select('hearing_date, cases!inner(advocate_id)')
+        .in('cases.advocate_id', visibleAdvocateIds)
+        .gte('hearing_date', start)
+        .lte('hearing_date', end)
+      if (error) throw error
       const counts = new Map<string, number>()
-      for (let i = 0; i < cachedCaseIds.length; i += BATCH) {
-        const batch = cachedCaseIds.slice(i, i + BATCH)
-        const { data } = await supabase
-          .from('hearings')
-          .select('hearing_date')
-          .in('case_id', batch)
-          .gte('hearing_date', start)
-          .lte('hearing_date', end)
-        if (data) data.forEach((h: { hearing_date: string }) => counts.set(h.hearing_date, (counts.get(h.hearing_date) || 0) + 1))
+      for (const h of (data || []) as { hearing_date: string }[]) {
+        counts.set(h.hearing_date, (counts.get(h.hearing_date) || 0) + 1)
       }
       fetchedMonthsRef.current.add(monthKey)
       // Merge into the existing map (keyed by date) rather than replace it
@@ -535,7 +521,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     } catch (err) {
       console.error('fetchMonthDates error:', err)
     }
-  }, [cachedCaseIds])
+  }, [visibleAdvocateIds])
 
   // Fetch hearings for selected date
   const fetchHearings = useCallback(async () => {
@@ -1034,17 +1020,48 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         </div>
       )
     }
+    // Comment editing/display now lives entirely inside this one box —
+    // typing a note replaces the icon button with the note text itself
+    // (still clickable, to change or clear it), instead of opening a
+    // separate row below the table.
+    if (commentHearingId === h.id) {
+      return (
+        <div className="flex items-center gap-1">
+          <input
+            autoFocus
+            type="text"
+            placeholder="Type a note…"
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
+            className="flex-1 min-w-0 px-1.5 py-0.5 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none"
+          />
+          <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-blue-600 disabled:opacity-50">✓</button>
+        </div>
+      )
+    }
     return (
-      <div className="flex items-center gap-0.5 justify-center">
-        <button
-          onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-          className={`p-1.5 rounded transition-colors ${h.outcome_notes ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-          title={h.outcome_notes ? h.outcome_notes : 'Add comment'}
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-        </button>
+      <div className="flex items-center gap-0.5 justify-center min-w-0">
+        {h.outcome_notes ? (
+          <button
+            onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
+            className="flex items-center gap-1 min-w-0 max-w-full text-xs text-blue-700 font-medium hover:text-blue-900 px-1.5 py-1 rounded hover:bg-blue-50 transition-colors"
+            title={`${h.outcome_notes} — click to change`}
+          >
+            <MessageSquare className="w-3 h-3 shrink-0" />
+            <span className="truncate">{h.outcome_notes}</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => { setCommentHearingId(h.id); setCommentText('') }}
+            className="p-1.5 rounded transition-colors text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+            title="Add comment"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+          </button>
+        )}
         {ecLink && (
-          <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors" title="eCourts">
+          <a href={ecLink} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors shrink-0" title="eCourts">
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
         )}
@@ -1148,12 +1165,42 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // instead of shrinking text or spilling onto a second printed page — so
   // it can be folded down the middle, giving two full sides to carry
   // instead of one.
-  const slipSorted = [...hearings].sort((a, b) =>
-    getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
-  )
+  // Linked cases get one slip line, same as the on-screen compact view —
+  // otherwise the slip lists Rahul/Ganesh/Sehjal as 3 separate lines
+  // when the diary itself shows them clubbed into one.
+  const slipSorted = [...hearings]
+    .filter((h) => {
+      const gs = groupSizeById.get(h.id) || 1
+      return gs === 1 || anchorIds.has(h.id)
+    })
+    .sort((a, b) =>
+      getCourtSortPriority(a.caseData.court_code || '') - getCourtSortPriority(b.caseData.court_code || '')
+    )
   const SLIP_ROWS_PER_COLUMN = 20
   const slipRightCases = slipSorted.slice(0, SLIP_ROWS_PER_COLUMN)
   const slipLeftCases = slipSorted.slice(SLIP_ROWS_PER_COLUMN) // empty on a normal day
+
+  function slipLineContent(h: HearingWithCase) {
+    const groupSize = groupSizeById.get(h.id) || 1
+    if (groupSize > 1) {
+      const group = groupMembersByAnchor.get(h.id) || [h]
+      const common = commonPartyById.get(h.id)
+      const caseNos = group.map((g) => formatCaseNumber(g.caseData.case_number, g.caseData.case_year)).join(', ')
+      let partyLine: string
+      if (common?.side === 'plaintiff') {
+        partyLine = `${slipShortName(common.name)} / ${group.map((g) => slipShortName(g.caseData.party_defendant)).join(', ')}`
+      } else if (common?.side === 'defendant') {
+        partyLine = `${group.map((g) => slipShortName(g.caseData.party_plaintiff)).join(', ')} / ${slipShortName(common.name)}`
+      } else {
+        partyLine = group.map((g) => `${slipShortName(g.caseData.party_plaintiff)}/${slipShortName(g.caseData.party_defendant)}`).join('; ')
+      }
+      return { caseNos, partyLine }
+    }
+    return {
+      caseNos: formatCaseNumber(h.caseData.case_number, h.caseData.case_year),
+      partyLine: `${slipShortName(h.caseData.party_plaintiff)} / ${slipShortName(h.caseData.party_defendant)}`,
+    }
+  }
 
   return (
     <div className="max-w-6xl print:max-w-none">
@@ -1582,42 +1629,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             {renderActionCellContent(group[0])}
                           </td>
                         </tr>
-
-                        {/* Inline comment editor/display for each linked case that has one open or saved */}
-                        {group.map((g) => (
-                          !isFinalStage(g.stage_on_date) && (g.outcome_notes || commentHearingId === g.id) && (
-                            <tr key={`cmt-${g.id}`}>
-                              <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
-                                {commentHearingId === g.id ? (
-                                  <div className="flex items-start gap-2">
-                                    <textarea
-                                      autoFocus
-                                      rows={2}
-                                      placeholder="Add a comment or note for this hearing…"
-                                      value={commentText}
-                                      onChange={(e) => setCommentText(e.target.value)}
-                                      onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(g.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                      className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
-                                    />
-                                    <button onClick={() => saveComment(g.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                                      {commentSaving ? '…' : 'Save'}
-                                    </button>
-                                    <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => { setCommentHearingId(g.id); setCommentText(g.outcome_notes || '') }}
-                                    className="text-xs text-blue-700 text-left w-full hover:text-blue-900 whitespace-pre-wrap"
-                                  >
-                                    💬 {g.outcome_notes}
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        ))}
                       </Fragment>
                     )
                   }
@@ -1696,40 +1707,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           {renderActionCellContent(h)}
                         </td>
                       </tr>
-
-                      {/* Inline comment always visible if exists, or open for editing */}
-                      {!isFinalStage(h.stage_on_date) && (h.outcome_notes || commentHearingId === h.id) && (
-                        <tr key={`cmt-${h.id}`}>
-                          <td colSpan={8} className="border border-gray-200 px-3 py-1.5 print:hidden bg-blue-50/40">
-                            {commentHearingId === h.id ? (
-                              <div className="flex items-start gap-2">
-                                <textarea
-                                  autoFocus
-                                  rows={2}
-                                  placeholder="Add a comment or note for this hearing…"
-                                  value={commentText}
-                                  onChange={(e) => setCommentText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) saveComment(h.id); if (e.key === 'Escape') { setCommentHearingId(null); setCommentText('') } }}
-                                  className="flex-1 px-2 py-1 border border-blue-300 rounded text-xs bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
-                                />
-                                <button onClick={() => saveComment(h.id)} disabled={commentSaving} className="px-2 py-1 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-                                  {commentSaving ? '…' : 'Save'}
-                                </button>
-                                <button onClick={() => { setCommentHearingId(null); setCommentText('') }} className="px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-700">
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => { setCommentHearingId(h.id); setCommentText(h.outcome_notes || '') }}
-                                className="text-xs text-blue-700 text-left w-full hover:text-blue-900 whitespace-pre-wrap"
-                              >
-                                💬 {h.outcome_notes}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      )}
 
                       {/* Case history row */}
                       {expandedCaseId === h.case_id && (
@@ -1937,22 +1914,27 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                 <div style={{ textAlign: 'center', padding: '3mm 0', fontSize: '14px', color: '#999' }}>No hearings today</div>
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {cases.map((h) => (
-                    <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
-                      {/* Fixed court + case-number prefix, then party names +
-                          stage in a single line that shrinks and truncates
-                          with an ellipsis rather than wrapping to a second
-                          line — a slip entry should always be one line. */}
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', flexWrap: 'nowrap', overflow: 'hidden' }}>
-                        <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#555', flexShrink: 0 }}>{formatCaseNumber(h.caseData.case_number, h.caseData.case_year)}</span>
-                        <span style={{ color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {slipShortName(h.caseData.party_plaintiff)} / {slipShortName(h.caseData.party_defendant)}
-                          {h.caseData.case_stage && <span style={{ fontSize: '10px', color: '#888' }}> ({stageAbbrev(h.caseData.case_stage)})</span>}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
+                  {cases.map((h) => {
+                    const { caseNos, partyLine } = slipLineContent(h)
+                    return (
+                      <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
+                        {/* Fixed court + case-number prefix, then party names +
+                            stage in a single line that shrinks and truncates
+                            with an ellipsis rather than wrapping to a second
+                            line — a slip entry should always be one line.
+                            Linked cases collapse into one line here too,
+                            case numbers comma-separated. */}
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5mm', flexWrap: 'nowrap', overflow: 'hidden' }}>
+                          <span style={{ fontWeight: 'bold', flexShrink: 0 }}>{courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}</span>
+                          <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#555', flexShrink: 0 }}>{caseNos}</span>
+                          <span style={{ color: '#222', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {partyLine}
+                            {h.caseData.case_stage && <span style={{ fontSize: '10px', color: '#888' }}> ({stageAbbrev(h.caseData.case_stage)})</span>}
+                          </span>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
               {footerLine(cases.length)}
