@@ -1200,6 +1200,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // falling back to a full "num/yy" per case, comma-separated, when they
   // don't. Used by both the table's Case No. column and the print slip.
   function combineCaseNumbers(group: { caseData: { case_number: string; case_year: number | null } }[]): string {
+    if (group.every((g) => !g.caseData.case_number)) return '—' // none allotted yet — one dash, not one per case
     const year = group[0].caseData.case_year
     const sameYear = group.every((g) => g.caseData.case_year === year)
     if (sameYear && year) {
@@ -1487,7 +1488,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               <thead>
                 <tr style={{ background: '#e8e8e0' }}>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16">Pre.</th>
-                  <th className="border border-gray-300 px-1.5 py-2 text-xs font-bold text-gray-700 text-left whitespace-nowrap">Court</th>
+                  {/* w-[1%] is the standard "shrink to fit content" trick
+                      for an auto-layout table — combined with
+                      whitespace-nowrap below, the column ends up exactly
+                      as wide as the longest court label needs and no
+                      wider, instead of getting stretched out by other
+                      columns. */}
+                  <th className="border border-gray-300 px-1.5 py-2 text-xs font-bold text-gray-700 text-left whitespace-nowrap w-[1%]">Court</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-center w-16 md:w-20">Case No.</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 1</th>
                   <th className="border border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 text-left w-40">Party 2</th>
