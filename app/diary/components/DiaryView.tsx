@@ -375,6 +375,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   // Inline editing
   const [editingStage, setEditingStage] = useState<string | null>(null)
+  // Picking "Ordered/Disposed" asks for the actual order/disposal date
+  // (which order was pronounced on, not necessarily today) before saving —
+  // keyed by hearing id, same as editingStage. For a linked group this is
+  // the group's shared representative id (group[0].id), same convention
+  // as editingStage there.
+  const [orderDatePromptId, setOrderDatePromptId] = useState<string | null>(null)
+  const [orderDatePromptIds, setOrderDatePromptIds] = useState<string[] | null>(null) // group hearing ids, when set via the merged stage control
+  const [orderDateValue, setOrderDateValue] = useState('')
   const [editingNextDate, setEditingNextDate] = useState<string | null>(null)
   // When set, the next-date picker applies the chosen date to every id in
   // this list instead of just editingNextDate — used for a linked-cases
@@ -613,7 +621,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     router.push(`/diary/date/${toYMD(d)}`, { scroll: false })
   }
 
-  async function saveStage(hearingId: string, newStage: string) {
+  async function saveStage(hearingId: string, newStage: string, disposalDate?: string) {
     const supabase = createClient()
     // Recording a stage is just as clear a sign the hearing was actually
     // attended as giving a next date — mark it happened here too, so
@@ -628,10 +636,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     const hearing = hearings.find(h => h.id === hearingId)
     if (hearing) {
       const updates: Record<string, string> = { case_stage: newStage }
-      if (newStage === 'Ordered/Disposed') updates.status = 'disposed'
+      if (newStage === 'Ordered/Disposed') {
+        updates.status = 'disposed'
+        if (disposalDate) updates.disposal_date = disposalDate
+      }
       await supabase.from('cases').update(updates).eq('id', hearing.case_id)
     }
     setEditingStage(null)
+    setOrderDatePromptId(null)
     setExpandedCaseId(null) // any action closes the open history panel
     // Optimistic update — no refetch, no scroll jump
     setHearings(prev => prev.map(h => h.id === hearingId ? { ...h, stage_on_date: newStage, set_by_name: advocateName || null, happened: true } : h))
@@ -820,6 +832,27 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // rendering below the table).
   function renderStageCellContent(h: HearingWithCase) {
     const stages = h.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
+    // Picking Ordered/Disposed asks for the actual order date before it
+    // actually saves.
+    if (orderDatePromptId === h.id) {
+      return (
+        <div className="flex items-center gap-1">
+          <input
+            autoFocus
+            type="date"
+            value={orderDateValue}
+            onChange={(e) => setOrderDateValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && orderDateValue) saveStage(h.id, 'Ordered/Disposed', orderDateValue); if (e.key === 'Escape') setOrderDatePromptId(null) }}
+            className="px-1 py-0.5 border border-gray-300 rounded text-xs bg-white text-gray-900 w-full"
+          />
+          <button
+            onClick={() => saveStage(h.id, 'Ordered/Disposed', orderDateValue)}
+            disabled={!orderDateValue}
+            className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-[#1e3a5f] disabled:opacity-50"
+          >✓</button>
+        </div>
+      )
+    }
     if (editingStage === h.id) {
       if (inlineCustomStageId === h.id) {
         return (
@@ -854,6 +887,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             if (e.target.value === 'Custom...') {
               setInlineCustomStageId(h.id)
               setInlineCustomStage('')
+            } else if (e.target.value === 'Ordered/Disposed') {
+              setEditingStage(null)
+              setOrderDatePromptId(h.id)
+              setOrderDateValue(toYMD(new Date()))
             } else {
               saveStage(h.id, e.target.value)
             }
@@ -899,15 +936,35 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // adjournment, same next date). Falls back to per-case controls (via
   // renderStageCellContent / renderNextDateButton above) the moment they
   // actually diverge.
-  async function saveStageForGroup(ids: string[], newStage: string) {
+  async function saveStageForGroup(ids: string[], newStage: string, disposalDate?: string) {
     setEditingStage(null)
-    await Promise.all(ids.map((id) => saveStage(id, newStage)))
+    setOrderDatePromptIds(null)
+    await Promise.all(ids.map((id) => saveStage(id, newStage, disposalDate)))
   }
 
   function renderMergedStageCell(group: HearingWithCase[]) {
     const anchor = group[0]
     const ids = group.map((g) => g.id)
     const stages = anchor.caseData.court_level === 'high_court' ? HC_STAGES : DISTRICT_STAGES
+    if (orderDatePromptIds && orderDatePromptIds[0] === anchor.id) {
+      return (
+        <div className="flex items-center gap-1">
+          <input
+            autoFocus
+            type="date"
+            value={orderDateValue}
+            onChange={(e) => setOrderDateValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && orderDateValue) saveStageForGroup(ids, 'Ordered/Disposed', orderDateValue); if (e.key === 'Escape') setOrderDatePromptIds(null) }}
+            className="px-1 py-0.5 border border-gray-300 rounded text-xs bg-white text-gray-900 w-full"
+          />
+          <button
+            onClick={() => saveStageForGroup(ids, 'Ordered/Disposed', orderDateValue)}
+            disabled={!orderDateValue}
+            className="px-1.5 py-0.5 rounded text-xs font-medium text-white bg-[#1e3a5f] disabled:opacity-50"
+          >✓</button>
+        </div>
+      )
+    }
     if (editingStage === anchor.id) {
       if (inlineCustomStageId === anchor.id) {
         return (
@@ -942,6 +999,10 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             if (e.target.value === 'Custom...') {
               setInlineCustomStageId(anchor.id)
               setInlineCustomStage('')
+            } else if (e.target.value === 'Ordered/Disposed') {
+              setEditingStage(null)
+              setOrderDatePromptIds(ids)
+              setOrderDateValue(toYMD(new Date()))
             } else {
               saveStageForGroup(ids, e.target.value)
             }

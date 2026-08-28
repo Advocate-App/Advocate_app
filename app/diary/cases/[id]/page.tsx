@@ -570,12 +570,16 @@ export default function CaseDetailPage() {
     }
 
     // Also update case_stage if provided — and if it's the wrap-up stage,
-    // mark the case non-active automatically, same as the Diary does.
+    // mark the case non-active automatically (same as the Diary does),
+    // saving this hearing's own date as the order/disposal date.
     if (resolvedStage && caseData) {
-      const caseUpdates: { case_stage: string; status?: string } = { case_stage: resolvedStage }
-      if (resolvedStage === 'Ordered/Disposed') caseUpdates.status = 'disposed'
+      const caseUpdates: { case_stage: string; status?: string; disposal_date?: string } = { case_stage: resolvedStage }
+      if (resolvedStage === 'Ordered/Disposed') {
+        caseUpdates.status = 'disposed'
+        caseUpdates.disposal_date = hearingForm.hearing_date
+      }
       await supabase.from('cases').update(caseUpdates).eq('id', id)
-      setCaseData({ ...caseData, case_stage: resolvedStage, status: caseUpdates.status || caseData.status })
+      setCaseData({ ...caseData, case_stage: resolvedStage, status: caseUpdates.status || caseData.status, disposal_date: caseUpdates.disposal_date || caseData.disposal_date })
     }
 
     // Auto-create next hearing if next date is provided (so it shows in

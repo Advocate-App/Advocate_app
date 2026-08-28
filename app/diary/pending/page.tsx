@@ -117,21 +117,24 @@ export default function PendingPage() {
     const nd = nextDate[item.hearingId]
     const sg = stage[item.hearingId]
     const wrappedUp = sg === 'Ordered/Disposed'
-    // A wrapped-up case doesn't need a next date — everything else still
-    // does, that's what "pending" is asking for.
-    if (!nd && !wrappedUp) return
+    // A wrapped-up case still needs a date — just the order/disposal date,
+    // not a next hearing date. Everything else needs a real next date,
+    // that's what "pending" is asking for.
+    if (!nd) return
     setSavingId(item.hearingId)
     const supabase = createClient()
 
-    // Update this hearing: set next_hearing_date + optional stage
+    // Update this hearing: set next_hearing_date (or leave it, for a
+    // wrapped-up case) + the stage
     await supabase.from('hearings').update({
-      ...(nd ? { next_hearing_date: nd } : {}),
+      ...(wrappedUp ? {} : { next_hearing_date: nd }),
       ...(sg !== undefined ? { stage_on_date: sg || null } : {}),
       set_by_advocate_id: me?.id || null,
       set_by_name: me?.name || null,
+      happened: true,
     }).eq('id', item.hearingId)
 
-    if (nd) {
+    if (!wrappedUp) {
       // Check if a hearing already exists for that next date
       const { data: existing } = await supabase
         .from('hearings').select('id').eq('case_id', item.caseId).eq('hearing_date', nd).limit(1)
@@ -148,11 +151,12 @@ export default function PendingPage() {
       }
     }
 
-    // Ordered/Disposed marks the case non-active automatically — that's
+    // Ordered/Disposed marks the case non-active automatically, with the
+    // date entered above saved as the actual order/disposal date — that's
     // what actually takes it off this list (and everywhere else), instead
     // of a separate "Disposed" button.
     if (wrappedUp) {
-      await supabase.from('cases').update({ status: 'disposed', case_stage: sg }).eq('id', item.caseId)
+      await supabase.from('cases').update({ status: 'disposed', case_stage: sg, disposal_date: nd }).eq('id', item.caseId)
     }
 
     // Remove from list
@@ -330,21 +334,20 @@ export default function PendingPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Next Date {sg === 'Ordered/Disposed' ? '' : '*'}
+                      {sg === 'Ordered/Disposed' ? 'Order/Disposal Date *' : 'Next Date *'}
                     </label>
                     <input
                       type="date"
                       value={nd}
-                      disabled={sg === 'Ordered/Disposed'}
                       onChange={e => setNextDate(p => ({ ...p, [item.hearingId]: e.target.value }))}
-                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f] disabled:bg-gray-50 disabled:text-gray-400"
+                      className="w-full px-2.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
                       style={{ minHeight: '44px' }}
                     />
                   </div>
                 </div>
                 <button
                   onClick={() => saveRow(item)}
-                  disabled={(!nd && sg !== 'Ordered/Disposed') || savingId === item.hearingId}
+                  disabled={!nd || savingId === item.hearingId}
                   className="w-full px-3 py-2.5 rounded-lg text-sm font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
                   style={{ minHeight: '44px' }}
                 >
@@ -365,7 +368,7 @@ export default function PendingPage() {
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500">Parties</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-28">Previous Dates</th>
                 <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-36">Stage</th>
-                <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-32">Next Date *</th>
+                <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 w-32">Next / Order Date *</th>
                 <th className="px-3 py-2.5 w-32"></th>
               </tr>
             </thead>
@@ -408,16 +411,16 @@ export default function PendingPage() {
                       <input
                         type="date"
                         value={nd}
-                        disabled={sg === 'Ordered/Disposed'}
+                        title={sg === 'Ordered/Disposed' ? 'Order/Disposal date' : 'Next hearing date'}
                         onChange={e => setNextDate(p => ({ ...p, [item.hearingId]: e.target.value }))}
-                        className="w-full px-1.5 py-1 border border-gray-200 rounded text-xs bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f] disabled:bg-gray-50 disabled:text-gray-400"
+                        className="w-full px-1.5 py-1 border border-gray-200 rounded text-xs bg-white text-gray-800 focus:outline-none focus:border-[#1e3a5f]"
                       />
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center justify-end">
                         <button
                           onClick={() => saveRow(item)}
-                          disabled={(!nd && sg !== 'Ordered/Disposed') || savingId === item.hearingId}
+                          disabled={!nd || savingId === item.hearingId}
                           className="px-2.5 py-1 rounded text-xs font-medium text-white bg-[#1e3a5f] hover:opacity-90 disabled:opacity-30"
                         >
                           {savingId === item.hearingId ? '…' : sg === 'Ordered/Disposed' ? 'Mark Ordered/Disposed' : 'Set Date'}
