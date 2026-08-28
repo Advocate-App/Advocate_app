@@ -50,6 +50,7 @@ interface CaseRecord {
   party_defendant: string
   full_title: string
   client_name: string | null
+  client_name_2: string | null
   client_id: string | null
   client_side: string | null
   our_role: string | null
@@ -1863,6 +1864,9 @@ export default function CaseDetailPage() {
               <Field label="Plaintiff / Petitioner" value={caseData.party_plaintiff} />
               <Field label="Defendant / Respondent" value={caseData.party_defendant} />
               <Field label="Client Name" value={caseData.client_name} />
+              {caseData.client_side === 'both' && (
+                <Field label="Second Client Name" value={caseData.client_name_2} />
+              )}
               <Field label="Client Side" value={capitalize(caseData.client_side)} />
               <Field label="Our Role" value={caseData.our_role} />
               <Field label="Opposite Advocate" value={caseData.opposite_advocate} />

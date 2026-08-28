@@ -29,6 +29,7 @@ interface FormData {
   party_plaintiff: string
   party_defendant: string
   client_name: string
+  client_name_2: string
   client_side: string
   our_role: string
   opposite_advocate: string
@@ -355,6 +356,7 @@ export default function EditCasePage() {
         party_plaintiff: caseData.party_plaintiff || '',
         party_defendant: caseData.party_defendant || '',
         client_name: caseData.client_name || '',
+        client_name_2: caseData.client_name_2 || '',
         client_side: caseData.client_side || '',
         our_role: caseData.our_role || '',
         opposite_advocate: caseData.opposite_advocate || '',
@@ -525,6 +527,7 @@ export default function EditCasePage() {
         party_plaintiff: form!.party_plaintiff.trim(),
         party_defendant: form!.party_defendant.trim(),
         client_name: form!.client_name.trim() || null,
+        client_name_2: form!.client_side === 'both' ? (form!.client_name_2.trim() || null) : null,
         client_side: form!.client_side || null,
         our_role: form!.our_role.trim() || null,
         opposite_advocate: form!.opposite_advocate.trim() || null,
@@ -775,6 +778,19 @@ export default function EditCasePage() {
               placeholder="Select side..."
             />
           </div>
+
+          {/* We represent both parties — a second client field for the
+              other side. */}
+          {form.client_side === 'both' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextInput
+                label="Second Client Name"
+                value={form.client_name_2}
+                onChange={(v) => set('client_name_2', v)}
+                placeholder="Who is the second client?"
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <TextInput

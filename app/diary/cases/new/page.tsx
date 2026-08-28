@@ -32,6 +32,7 @@ interface FormData {
   party_plaintiff: string
   party_defendant: string
   client_name: string
+  client_name_2: string
   client_side: string
   our_role: string
   opposite_advocate: string
@@ -50,7 +51,7 @@ interface FieldErrors { [key: string]: string }
 const INITIAL: FormData = {
   court_level: null, case_number: '', case_year: new Date().getFullYear(),
   case_type: '', party_plaintiff: '', party_defendant: '',
-  client_name: '', client_side: '', our_role: '', opposite_advocate: '',
+  client_name: '', client_name_2: '', client_side: '', our_role: '', opposite_advocate: '',
   filed_date: '', case_stage: '', ecourts_cnr: '', notes: '',
   court_code: '', court_name_custom: '', hc_bench: '', next_hearing_date: '',
 }
@@ -292,6 +293,10 @@ export default function NewCasePage() {
   const [showAddCourt, setShowAddCourt] = useState(false)
   const [showAddClient, setShowAddClient] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
+  // "Client Side: Both" means we represent both parties — a second,
+  // independent client picker for the other one.
+  const [showAddClient2, setShowAddClient2] = useState(false)
+  const [selectedClientId2, setSelectedClientId2] = useState('')
   const [city, setCity] = useState('')
 
   const set = <K extends keyof FormData>(key: K, value: FormData[K]) => {
@@ -346,6 +351,21 @@ export default function NewCasePage() {
       setSelectedClientId(client.id)
       set('client_name', client.name)
       setShowAddClient(false)
+    }
+  }
+
+  async function addClient2(name: string, phone: string, clientCity: string) {
+    const res = await fetch('/api/clients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ name, phone: phone || null, city: clientCity || null }),
+    })
+    if (res.ok) {
+      const client: ClientRecord = await res.json()
+      setClients(prev => [...prev, client])
+      setSelectedClientId2(client.id)
+      set('client_name_2', client.name)
+      setShowAddClient2(false)
     }
   }
 
@@ -453,6 +473,8 @@ export default function NewCasePage() {
         status: 'active',
         client_id: selectedClientId || null,
         client_name: form.client_name.trim() || null,
+        client_id_2: form.client_side === 'both' ? (selectedClientId2 || null) : null,
+        client_name_2: form.client_side === 'both' ? (form.client_name_2.trim() || null) : null,
         client_side: form.client_side || null,
         our_role: form.our_role.trim() || null,
         opposite_advocate: form.opposite_advocate.trim() || null,
@@ -694,6 +716,50 @@ export default function NewCasePage() {
             <SimpleSelect label="Client Side" options={sideOptions} value={form.client_side}
               onChange={(v) => set('client_side', v)} placeholder="Select side…" />
           </div>
+
+          {/* We represent both parties — a second, independent client
+              picker for the other side. Same dropdown of saved clients,
+              or add a new one. */}
+          {form.client_side === 'both' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <SearchableSelect
+                  label="Second Client Name"
+                  options={clientOptions}
+                  value={selectedClientId2 || ''}
+                  placeholder="Search or add second client…"
+                  onChange={(v) => {
+                    if (v === '__HEADER__') return
+                    if (v === '__ACTION__') { setShowAddClient2(true); return }
+                    const c = clients.find(c => c.id === v)
+                    setSelectedClientId2(v)
+                    set('client_name_2', c?.name || '')
+                    setShowAddClient2(false)
+                  }}
+                />
+                {selectedClientId2 && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                      <Check className="w-3 h-3" />
+                      Linked to saved client
+                    </span>
+                    <button onClick={() => { setSelectedClientId2(''); set('client_name_2', '') }}
+                      className="text-xs text-gray-400 hover:text-gray-600">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+                {!selectedClientId2 && (
+                  <input type="text" value={form.client_name_2} onChange={(e) => set('client_name_2', e.target.value)}
+                    placeholder="Or type a name directly…"
+                    className="mt-1.5 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 placeholder-gray-400" />
+                )}
+                {showAddClient2 && (
+                  <AddClientPanel onSave={addClient2} onCancel={() => setShowAddClient2(false)} />
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <TextInput label="Our Role / Designation" value={form.our_role} onChange={(v) => set('our_role', v)}

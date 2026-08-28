@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       party_defendant: caseFields.party_defendant,
       status: caseFields.status || 'active',
       client_name: caseFields.client_name || null,
+      client_name_2: caseFields.client_name_2 || null,
       client_side: validClientSides.includes(body.client_side) ? body.client_side : null,
       our_role: caseFields.our_role || null,
       opposite_advocate: caseFields.opposite_advocate || null,
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
       ...baseCaseData,
       ...(caseFields.city ? { city: caseFields.city } : {}),
       ...(caseFields.client_id ? { client_id: caseFields.client_id } : {}),
+      ...(caseFields.client_id_2 ? { client_id_2: caseFields.client_id_2 } : {}),
     }
 
     let { data: newCase, error: insertErr } = await supabaseAdmin
