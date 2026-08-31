@@ -1661,26 +1661,70 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       ) : (
         <>
           {/* ═══ Mobile-only compact rows (below the sm breakpoint) ═══
-              Court+case number combined into one tag, parties, next date —
-              everything else (Pre., Stage, Action) lives on the case page
-              a tap away, not crammed into this row. */}
+              Three separate tap targets, not one big link:
+              - Court+case number → opens the case's brief details.
+              - Party names (title) → expands old dates + the action/note
+                right here, without leaving the list.
+              - Next date → opens the date picker to change/enter it.
+              Numbered, so a row is easy to point to out loud. */}
           <div className="sm:hidden space-y-1.5 print:hidden">
-            {displayHearings.map((h) => {
+            {displayHearings.map((h, mobileIdx) => {
               const groupSize = groupSizeById.get(h.id) || 1
               if (groupSize > 1 && !anchorIds.has(h.id)) return null
               const { court, caseNos, partyLine } = mobileLineContent(h)
               const borderColor = rowBorderColor(h)
+              const isExpanded = expandedCaseId === h.case_id
               return (
-                <Link
+                <div
                   key={h.id}
-                  href={`/diary/cases/${h.case_id}`}
-                  className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-gray-200 text-xs active:bg-gray-50"
+                  className="bg-white rounded-lg border border-gray-200 overflow-hidden"
                   style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
                 >
-                  <span className="font-mono font-semibold text-gray-700 shrink-0">{court} · {caseNos}</span>
-                  <span className="flex-1 min-w-0 truncate text-gray-800">{partyLine}</span>
-                  <span className="font-mono text-gray-500 shrink-0">{formatDD_MM(h.next_hearing_date) || '—'}</span>
-                </Link>
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <span className="text-gray-300 font-mono shrink-0">{mobileIdx + 1}.</span>
+                    <Link
+                      href={`/diary/cases/${h.case_id}`}
+                      className="font-mono font-semibold text-gray-700 shrink-0"
+                    >
+                      {court} · {caseNos}
+                    </Link>
+                    <button
+                      onClick={() => toggleHistory(h.case_id)}
+                      className="flex-1 min-w-0 truncate text-gray-800 text-left"
+                    >
+                      {partyLine}
+                    </button>
+                    <button
+                      onClick={() => { setEditingNextDate(h.id); setEditingNextDateGroupIds(null) }}
+                      className="font-mono text-gray-500 shrink-0"
+                    >
+                      {formatDD_MM(h.next_hearing_date) || '—'}
+                    </button>
+                  </div>
+                  {isExpanded && (
+                    <div className="px-3 py-2.5 bg-gray-50 border-t border-gray-100 space-y-2.5">
+                      <div>
+                        <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Old Dates</div>
+                        {caseHistory.length === 0 ? (
+                          <p className="text-[11px] text-gray-400">No history found.</p>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            {caseHistory.map((ch) => (
+                              <div key={ch.id} className="text-[11px] text-gray-600">
+                                <span className="font-mono text-gray-500">{formatDD_MM(ch.hearing_date)}</span>
+                                {ch.stage_on_date && <span className="text-gray-800"> — {ch.stage_on_date}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Action / Note</div>
+                        {renderActionCellContent(h)}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
