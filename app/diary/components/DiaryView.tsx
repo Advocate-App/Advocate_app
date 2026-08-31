@@ -1704,16 +1704,16 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   {isExpanded && (
                     <div className="px-3 py-2.5 bg-gray-50 border-t border-gray-100 space-y-2.5">
                       <div>
-                        <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Old Dates</div>
+                        <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Last 3 Dates</div>
                         {caseHistory.length === 0 ? (
                           <p className="text-[11px] text-gray-400">No history found.</p>
                         ) : (
-                          <div className="flex flex-col gap-0.5">
-                            {caseHistory.map((ch) => (
-                              <div key={ch.id} className="text-[11px] text-gray-600">
-                                <span className="font-mono text-gray-500">{formatDD_MM(ch.hearing_date)}</span>
-                                {ch.stage_on_date && <span className="text-gray-800"> — {ch.stage_on_date}</span>}
-                              </div>
+                          <div className="text-[11px] text-gray-600 font-mono">
+                            {[...caseHistory.slice(0, 3)].reverse().map((ch, i, arr) => (
+                              <span key={ch.id}>
+                                {formatDD_MM(ch.hearing_date)}
+                                {i < arr.length - 1 ? '  |  ' : ''}
+                              </span>
                             ))}
                           </div>
                         )}
