@@ -371,6 +371,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // for *both* senior advocates, not just cases matching their own id
   // (which never matches anything and used to leave the diary empty).
   const [visibleAdvocateIds, setVisibleAdvocateIds] = useState<string[] | null>(null)
+  // A senior sees juniors' own cases in the diary too (on top of their own)
+  // — this maps each junior's advocate id to their initials, so those rows
+  // can carry a small mark distinguishing whose case it is, without
+  // singling anyone out by name or role label.
+  const [juniorInitialsById, setJuniorInitialsById] = useState<Map<string, string>>(new Map())
   const [slipPrinting, setSlipPrinting] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
   const [hearings, setHearings] = useState<HearingWithCase[]>([])
@@ -470,6 +475,23 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               .select('id')
               .eq('role', 'advocate')
             ownerIds = [data.id, ...(seniors || []).map((s: { id: string }) => s.id)]
+          } else {
+            // A senior's diary also picks up any case a junior has added
+            // themselves (their own personal caseload, not the shared
+            // firm one) — marked distinctly in the row, see
+            // juniorInitialsById.
+            const { data: juniors } = await supabase
+              .from('advocates')
+              .select('id, full_name')
+              .eq('role', 'junior')
+            ownerIds = [data.id, ...(juniors || []).map((j: { id: string }) => j.id)]
+            const initialsMap = new Map<string, string>()
+            for (const j of (juniors || []) as { id: string; full_name: string }[]) {
+              const parts = j.full_name.replace(/^Advocate\s+/i, '').trim().split(/\s+/)
+              const initials = (parts[0]?.[0] || '') + (parts[parts.length - 1]?.[0] || '')
+              initialsMap.set(j.id, initials.toUpperCase())
+            }
+            setJuniorInitialsById(initialsMap)
           }
           setVisibleAdvocateIds(ownerIds)
           const { data: cc } = await supabase
@@ -844,6 +866,23 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     if (customCourtMap[courtCode]) return customCourtMap[courtCode]
     const builtin = getCourtShortLabel(courtCode)
     return builtin || fallback
+  }
+
+  // A junior's own case, shown in a senior's diary, carries this small
+  // initials mark right next to the court badge — no extra column, no
+  // width added to the row, and never spells anything out beyond initials.
+  function renderJuniorMark(caseAdvocateId: string) {
+    const initials = juniorInitialsById.get(caseAdvocateId)
+    if (!initials) return null
+    return (
+      <span
+        className="inline-flex items-center justify-center ml-1 w-4 h-4 rounded-full text-[8px] font-bold text-white shrink-0 align-bottom"
+        style={{ background: '#7c3aed' }}
+        title={`Added by ${initials}`}
+      >
+        {initials}
+      </span>
+    )
   }
 
   // Stage / Next-date / Action cell content, extracted so the same
@@ -1676,6 +1715,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             >
                               {courtShortLabel(anchorCourtCode, group[0].caseData.court_name)}
                             </span>
+                            {renderJuniorMark(group[0].caseData.advocate_id)}
                             {!sameCourt && <div className="text-[9px] text-gray-400 mt-0.5">+ other courts</div>}
                           </td>
 
@@ -1852,6 +1892,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                           >
                             {courtShortLabel(courtCode, h.caseData.court_name)}
                           </button>
+                          {renderJuniorMark(h.caseData.advocate_id)}
                         </td>
 
                         {/* Case No. — click to open the case (Overview);

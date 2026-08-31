@@ -18,6 +18,7 @@ import {
   Search,
   MoreHorizontal,
   Building2,
+  User,
 } from 'lucide-react'
 
 const navItems = [
@@ -32,6 +33,10 @@ const navItems = [
   { href: '/diary/more', label: 'More', icon: MoreHorizontal },
 ]
 
+// A junior's own personal cases — separate from the shared firm caseload,
+// theirs to add and track on their own.
+const MY_CASES_ITEM = { href: '/diary/my-cases', label: 'My Cases', icon: User }
+
 // Profile, Empanelment, My Clients, My Courts all now live inside the
 // single "More" hub page, so the sidebar highlights that entry while
 // you're on any of them, not just on /diary/more itself. Company Cases
@@ -40,11 +45,12 @@ const navItems = [
 const MORE_PREFIXES = ['/diary/more', '/diary/profile', '/diary/empanelment', '/diary/clients', '/diary/courts']
 const MORE_EXCLUDE_PREFIX = '/diary/more/companies'
 
-// Junior advocates only get the diary + case lookup — everything else
-// (client lists, courts, empanelment, filters/reports, editing) is off
+// Junior advocates get the diary, case lookup, Copying, and their own
+// My Cases (view + add) — everything else (client lists, courts,
+// empanelment, filters/reports, editing someone else's case) is off
 // limits. They can still open a case (to set a hearing date) via a link
 // from either of those, just not the bare case list or edit form.
-const JUNIOR_ALLOWED_PREFIXES = ['/diary/find']
+const JUNIOR_ALLOWED_PREFIXES = ['/diary/find', '/diary/copying', '/diary/my-cases', '/diary/cases/new']
 function isAllowedForJunior(pathname: string): boolean {
   if (pathname === '/diary') return true
   if (pathname.startsWith('/diary/date/')) return true
@@ -108,7 +114,10 @@ export default function DiaryLayout({ children }: { children: React.ReactNode })
   }, [role, pathname, router])
 
   const visibleNavItems = role === 'junior'
-    ? navItems.filter((item) => item.href === '/diary' || item.href === '/diary/find')
+    ? [
+        ...navItems.filter((item) => ['/diary', '/diary/find', '/diary/copying'].includes(item.href)),
+        MY_CASES_ITEM,
+      ]
     : navItems
 
   async function handleLogout() {

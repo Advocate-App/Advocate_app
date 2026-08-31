@@ -338,7 +338,6 @@ export default function CaseDetailPage() {
       if (adv) {
         setAdvocateId(adv.id)
         setAdvocateName(adv.full_name || '')
-        setReadOnly(adv.role === 'junior')
       }
 
       // Fetch case by ID
@@ -350,6 +349,10 @@ export default function CaseDetailPage() {
 
       if (error || !c) { setNotFound(true); setLoading(false); return }
       const rec = c as CaseRecord
+      // A junior can fully edit their own personal case, same as a
+      // senior — only view-only when it's not theirs (the shared firm
+      // caseload).
+      if (adv) setReadOnly(adv.role === 'junior' && rec.advocate_id !== adv.id)
       setCaseData(rec)
       setStoryDraft(rec.case_story || '')
       setOrderDateDraft(rec.order_sent_date || '')
