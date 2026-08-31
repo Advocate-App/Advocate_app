@@ -1680,7 +1680,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   className="bg-white rounded-lg border border-gray-200 overflow-hidden"
                   style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
                 >
-                  <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                  <div className="flex items-start gap-2 px-3 py-2 text-xs">
                     <span className="text-gray-300 font-mono shrink-0">{mobileIdx + 1}.</span>
                     <Link
                       href={`/diary/cases/${h.case_id}`}
@@ -1688,9 +1688,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     >
                       {court} · {caseNos}
                     </Link>
+                    {/* Names are never truncated — they wrap to a second
+                        line instead of getting cut off with an ellipsis. */}
                     <button
                       onClick={() => toggleHistory(h.case_id)}
-                      className="flex-1 min-w-0 truncate text-gray-800 text-left"
+                      className="flex-1 min-w-0 text-gray-800 text-left whitespace-normal break-words"
                     >
                       {partyLine}
                     </button>
