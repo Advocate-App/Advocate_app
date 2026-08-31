@@ -35,6 +35,7 @@ export default function CopyingTrackerPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterTab>('all')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Form state
   const [form, setForm] = useState({
@@ -53,10 +54,15 @@ export default function CopyingTrackerPage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      // limit(1) before single() — Avi and Ratnesh share one login
+      // (same auth user_id), so this query matches 2 advocate rows.
+      // Plain .single() errors out on more than one row, which silently
+      // left advocateId unset and blocked every save on this page.
       const { data } = await supabase
         .from('advocates')
         .select('id')
         .eq('user_id', user.id)
+        .limit(1)
         .single()
       if (data) setAdvocateId(data.id)
     }
@@ -95,10 +101,12 @@ export default function CopyingTrackerPage() {
   // Add record
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    if (!advocateId || !form.head_number || !form.court_name || !form.file_description || !form.sent_by) return
+    setSaveError(null)
+    if (!advocateId) { setSaveError('Could not identify your account — please refresh the page and try again.'); return }
+    if (!form.head_number || !form.court_name || !form.file_description || !form.sent_by) return
     setSaving(true)
     const supabase = createClient()
-    await supabase.from('copying_tracker').insert({
+    const { error } = await supabase.from('copying_tracker').insert({
       advocate_id: advocateId,
       head_number: form.head_number,
       court_name: form.court_name,
@@ -108,6 +116,11 @@ export default function CopyingTrackerPage() {
       status: 'sent',
       notes: form.notes || null,
     })
+    if (error) {
+      setSaveError(error.message)
+      setSaving(false)
+      return
+    }
     setForm({
       head_number: '',
       court_name: '',
@@ -241,6 +254,9 @@ export default function CopyingTrackerPage() {
               />
             </div>
           </div>
+          {saveError && (
+            <p className="text-sm text-red-600">{saveError}</p>
+          )}
           <button
             type="submit"
             disabled={saving}
