@@ -25,6 +25,7 @@ import {
 } from 'date-fns'
 import {
   getCourtShortLabel,
+  getCourtMobileShortLabel,
   getCourtColor,
   getCourtSortPriority,
   eCourtsDeepLink,
@@ -98,7 +99,7 @@ interface HearingWithCase extends HearingRow {
   caseData: CaseRecord
 }
 
-interface CustomCourtRow { id: string; name: string; short_name: string | null; builtin_code: string | null }
+interface CustomCourtRow { id: string; name: string; short_name: string | null; mobile_short_name: string | null; builtin_code: string | null }
 
 interface SearchResult {
   id: string
@@ -421,6 +422,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   // Custom court short labels
   const [customCourtMap, setCustomCourtMap] = useState<Record<string, string>>({})
+  const [customMobileCourtMap, setCustomMobileCourtMap] = useState<Record<string, string>>({})
 
   // Add hearing modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -496,18 +498,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           setVisibleAdvocateIds(ownerIds)
           const { data: cc } = await supabase
             .from('custom_courts')
-            .select('id, name, short_name, builtin_code')
+            .select('id, name, short_name, mobile_short_name, builtin_code')
             .in('advocate_id', ownerIds)
           if (cc) {
             const map: Record<string, string> = {}
+            const mobileMap: Record<string, string> = {}
             for (const c of cc as CustomCourtRow[]) {
-              if (c.builtin_code) {
-                map[c.builtin_code] = c.short_name || c.name
-              } else {
-                map[`CUSTOM_${c.id}`] = c.short_name || c.name
-              }
+              const key = c.builtin_code || `CUSTOM_${c.id}`
+              map[key] = c.short_name || c.name
+              if (c.mobile_short_name) mobileMap[key] = c.mobile_short_name
             }
             setCustomCourtMap(map)
+            setCustomMobileCourtMap(mobileMap)
           }
         }
       } catch (err) {
@@ -865,6 +867,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   function courtShortLabel(courtCode: string, fallback: string): string {
     if (customCourtMap[courtCode]) return customCourtMap[courtCode]
     const builtin = getCourtShortLabel(courtCode)
+    return builtin || fallback
+  }
+
+  // Even shorter, mobile-only — editable per court on the My Courts page.
+  function courtMobileShortLabel(courtCode: string, fallback: string): string {
+    if (customMobileCourtMap[courtCode]) return customMobileCourtMap[courtCode]
+    const builtin = getCourtMobileShortLabel(courtCode)
     return builtin || fallback
   }
 
@@ -1354,6 +1363,40 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     }
   }
 
+  // The mobile-only compact row: court+case number combined into one tag,
+  // party names, next date — everything else (Pre., Stage, Action) is
+  // dropped there entirely; tapping the row opens the case, where all of
+  // that still lives. Same linked-case combining as the slip/desktop
+  // views, just with the (even shorter) mobile court label.
+  function mobileLineContent(h: HearingWithCase) {
+    const groupSize = groupSizeById.get(h.id) || 1
+    if (groupSize > 1) {
+      const group = groupMembersByAnchor.get(h.id) || [h]
+      const common = commonPartyById.get(h.id)
+      const caseNos = combineCaseNumbers(group)
+      let partyLine: string
+      if (common?.side === 'plaintiff') {
+        partyLine = `${slipShortName(common.name)} / ${group.map((g) => slipShortName(g.caseData.party_defendant)).join(', ')}`
+      } else if (common?.side === 'defendant') {
+        partyLine = `${group.map((g) => slipShortName(g.caseData.party_plaintiff)).join(', ')} / ${slipShortName(common.name)}`
+      } else {
+        partyLine = group.map((g) => `${slipShortName(g.caseData.party_plaintiff)}/${slipShortName(g.caseData.party_defendant)}`).join('; ')
+      }
+      const anchorCourtCode = group[0].caseData.court_code || ''
+      return {
+        court: courtMobileShortLabel(anchorCourtCode, group[0].caseData.court_name),
+        caseNos,
+        partyLine,
+      }
+    }
+    const courtCode = h.caseData.court_code || ''
+    return {
+      court: courtMobileShortLabel(courtCode, h.caseData.court_name),
+      caseNos: formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year),
+      partyLine: `${slipShortName(h.caseData.party_plaintiff)} / ${slipShortName(h.caseData.party_defendant)}`,
+    }
+  }
+
   return (
     <div className="max-w-6xl print:max-w-none">
 
@@ -1617,8 +1660,35 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
         </div>
       ) : (
         <>
-          {/* Table — same layout on phone and desktop; scrolls sideways on narrow screens */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden print:overflow-visible print:rounded-none print:border-black">
+          {/* ═══ Mobile-only compact rows (below the sm breakpoint) ═══
+              Court+case number combined into one tag, parties, next date —
+              everything else (Pre., Stage, Action) lives on the case page
+              a tap away, not crammed into this row. */}
+          <div className="sm:hidden space-y-1.5 print:hidden">
+            {displayHearings.map((h) => {
+              const groupSize = groupSizeById.get(h.id) || 1
+              if (groupSize > 1 && !anchorIds.has(h.id)) return null
+              const { court, caseNos, partyLine } = mobileLineContent(h)
+              const borderColor = rowBorderColor(h)
+              return (
+                <Link
+                  key={h.id}
+                  href={`/diary/cases/${h.case_id}`}
+                  className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-gray-200 text-xs active:bg-gray-50"
+                  style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
+                >
+                  <span className="font-mono font-semibold text-gray-700 shrink-0">{court} · {caseNos}</span>
+                  <span className="flex-1 min-w-0 truncate text-gray-800">{partyLine}</span>
+                  <span className="font-mono text-gray-500 shrink-0">{formatDD_MM(h.next_hearing_date) || '—'}</span>
+                </Link>
+              )
+            })}
+          </div>
+
+          {/* Table — desktop/tablet (sm and up); the compact list above
+              replaces this on a phone screen. Forced visible on print
+              regardless of viewport width. */}
+          <div className="hidden sm:block print:!block bg-white rounded-xl border border-gray-200 overflow-hidden print:overflow-visible print:rounded-none print:border-black">
             <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>

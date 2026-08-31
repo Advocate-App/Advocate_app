@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
-import { DISTRICT_COURTS, HC_BENCHES } from '@/lib/constants/courts'
+import { DISTRICT_COURTS, HC_BENCHES, getCourtMobileShortLabel } from '@/lib/constants/courts'
 
-interface CourtRow { id: string; name: string; short_name: string | null; city: string | null; builtin_code: string | null }
+interface CourtRow { id: string; name: string; short_name: string | null; mobile_short_name: string | null; city: string | null; builtin_code: string | null }
 
-type EditState = { key: string; name: string; short: string } | null
+type EditState = { key: string; name: string; short: string; mobileShort: string } | null
 
 const CITIES = ['Udaipur', 'Dungarpur', 'Banswara', 'Rajsamand', 'Salumber', 'Nathdwara', 'Jaipur']
 
@@ -23,8 +23,8 @@ function normalize(s: string | null | undefined) {
 // plain props avoids that entirely.
 
 function BuiltinRow({
-  code, name, city, override, isEditing, editShort, editSaving,
-  onStartEdit, onChangeShort, onSave, onCancel,
+  code, name, city, override, isEditing, editShort, editMobileShort, editSaving,
+  onStartEdit, onChangeShort, onChangeMobileShort, onSave, onCancel,
 }: {
   code: string
   name: string
@@ -32,14 +32,17 @@ function BuiltinRow({
   override: CourtRow | undefined
   isEditing: boolean
   editShort: string
+  editMobileShort: string
   editSaving: boolean
   onStartEdit: () => void
   onChangeShort: (v: string) => void
+  onChangeMobileShort: (v: string) => void
   onSave: () => void
   onCancel: () => void
 }) {
   const displayName = override?.name || name
   const displayShort = override?.short_name || null
+  const displayMobileShort = override?.mobile_short_name || getCourtMobileShortLabel(code)
 
   if (isEditing) {
     return (
@@ -53,6 +56,14 @@ function BuiltinRow({
             onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
             placeholder="Short form for diary…"
             className="w-40 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
+          />
+          <input
+            type="text"
+            value={editMobileShort}
+            onChange={(e) => onChangeMobileShort(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder={`Mobile (e.g. ${getCourtMobileShortLabel(code)})`}
+            className="w-32 px-2.5 py-1.5 border border-purple-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-purple-500"
           />
           <button onClick={onSave} disabled={editSaving}
             className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
@@ -73,6 +84,7 @@ function BuiltinRow({
         {displayShort && (
           <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{displayShort}</span>
         )}
+        <span className="text-xs text-purple-500 font-mono bg-purple-50 px-1.5 py-0.5 rounded shrink-0" title="Mobile short form">{displayMobileShort}</span>
       </div>
       <button
         onClick={onStartEdit}
@@ -85,18 +97,20 @@ function BuiltinRow({
 }
 
 function CustomRow({
-  r, isEditing, editName, editShort, editSaving, deleting,
-  onStartEdit, onChangeName, onChangeShort, onSave, onCancel, onDelete,
+  r, isEditing, editName, editShort, editMobileShort, editSaving, deleting,
+  onStartEdit, onChangeName, onChangeShort, onChangeMobileShort, onSave, onCancel, onDelete,
 }: {
   r: CourtRow
   isEditing: boolean
   editName: string
   editShort: string
+  editMobileShort: string
   editSaving: boolean
   deleting: boolean
   onStartEdit: () => void
   onChangeName: (v: string) => void
   onChangeShort: (v: string) => void
+  onChangeMobileShort: (v: string) => void
   onSave: () => void
   onCancel: () => void
   onDelete: () => void
@@ -122,6 +136,14 @@ function CustomRow({
             placeholder="Short form"
             className="w-32 px-2.5 py-1.5 border border-blue-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500"
           />
+          <input
+            type="text"
+            value={editMobileShort}
+            onChange={(e) => onChangeMobileShort(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder="Mobile short"
+            className="w-28 px-2.5 py-1.5 border border-purple-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:border-purple-500"
+          />
           <button onClick={onSave} disabled={editSaving || !editName.trim()}
             className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
             <Check className="w-3.5 h-3.5" />{editSaving ? 'Saving…' : 'Save'}
@@ -140,6 +162,9 @@ function CustomRow({
         <span className="text-sm text-gray-800 truncate">{r.name}</span>
         {r.short_name && (
           <span className="text-xs text-gray-400 font-mono bg-gray-100 px-1.5 py-0.5 rounded shrink-0">{r.short_name}</span>
+        )}
+        {r.mobile_short_name && (
+          <span className="text-xs text-purple-500 font-mono bg-purple-50 px-1.5 py-0.5 rounded shrink-0" title="Mobile short form">{r.mobile_short_name}</span>
         )}
         <span className="text-xs text-blue-400 shrink-0">custom</span>
       </div>
@@ -232,6 +257,7 @@ export default function CourtsPage() {
       body: JSON.stringify({
         name: edit?.name.trim() || defaultName,
         short_name: edit?.short.trim() || null,
+        mobile_short_name: edit?.mobileShort.trim() || null,
         city: defaultCity,
         builtin_code: code,
       }),
@@ -251,9 +277,9 @@ export default function CourtsPage() {
     const res = await fetch('/api/custom-courts', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ id, name: edit.name.trim(), short_name: edit.short.trim() || null }),
+      body: JSON.stringify({ id, name: edit.name.trim(), short_name: edit.short.trim() || null, mobile_short_name: edit.mobileShort.trim() || null }),
     })
-    if (res.ok) setRows(prev => prev.map(r => r.id === id ? { ...r, name: edit!.name.trim(), short_name: edit!.short.trim() || null } : r))
+    if (res.ok) setRows(prev => prev.map(r => r.id === id ? { ...r, name: edit!.name.trim(), short_name: edit!.short.trim() || null, mobile_short_name: edit!.mobileShort.trim() || null } : r))
     setEdit(null); setEditSaving(false)
   }
 
@@ -291,9 +317,11 @@ export default function CourtsPage() {
                 override={getOverride(c.code)}
                 isEditing={isEditing}
                 editShort={isEditing ? edit!.short : ''}
+                editMobileShort={isEditing ? edit!.mobileShort : ''}
                 editSaving={editSaving}
-                onStartEdit={() => setEdit({ key: c.code, name: getOverride(c.code)?.name || c.name, short: getOverride(c.code)?.short_name || '' })}
+                onStartEdit={() => setEdit({ key: c.code, name: getOverride(c.code)?.name || c.name, short: getOverride(c.code)?.short_name || '', mobileShort: getOverride(c.code)?.mobile_short_name || '' })}
                 onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                onChangeMobileShort={(v) => setEdit((prev) => (prev ? { ...prev, mobileShort: v } : prev))}
                 onSave={() => saveBuiltin(c.code, c.name, city)}
                 onCancel={() => setEdit(null)}
               />
@@ -308,11 +336,13 @@ export default function CourtsPage() {
                 isEditing={isEditing}
                 editName={isEditing ? edit!.name : ''}
                 editShort={isEditing ? edit!.short : ''}
+                editMobileShort={isEditing ? edit!.mobileShort : ''}
                 editSaving={editSaving}
                 deleting={deletingId === r.id}
-                onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '' })}
+                onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '', mobileShort: r.mobile_short_name || '' })}
                 onChangeName={(v) => setEdit((prev) => (prev ? { ...prev, name: v } : prev))}
                 onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                onChangeMobileShort={(v) => setEdit((prev) => (prev ? { ...prev, mobileShort: v } : prev))}
                 onSave={() => saveCustom(r.id)}
                 onCancel={() => setEdit(null)}
                 onDelete={() => deleteCourt(r.id)}
@@ -331,7 +361,7 @@ export default function CourtsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>Courts</h1>
         <p className="text-sm text-gray-400 mt-0.5">
-          Click the pencil on any court to set its short form for the diary. Custom courts appear in their city section.
+          Click the pencil on any court to set its short form for the diary, and its (even shorter) mobile short form — shown in purple. Custom courts appear in their city section.
         </p>
       </div>
 
@@ -385,9 +415,11 @@ export default function CourtsPage() {
                     override={getOverride(b.code)}
                     isEditing={isEditing}
                     editShort={isEditing ? edit!.short : ''}
+                    editMobileShort={isEditing ? edit!.mobileShort : ''}
                     editSaving={editSaving}
-                    onStartEdit={() => setEdit({ key: b.code, name: getOverride(b.code)?.name || b.name, short: getOverride(b.code)?.short_name || '' })}
+                    onStartEdit={() => setEdit({ key: b.code, name: getOverride(b.code)?.name || b.name, short: getOverride(b.code)?.short_name || '', mobileShort: getOverride(b.code)?.mobile_short_name || '' })}
                     onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                    onChangeMobileShort={(v) => setEdit((prev) => (prev ? { ...prev, mobileShort: v } : prev))}
                     onSave={() => saveBuiltin(b.code, b.name, city)}
                     onCancel={() => setEdit(null)}
                   />
@@ -415,11 +447,13 @@ export default function CourtsPage() {
                       isEditing={isEditing}
                       editName={isEditing ? edit!.name : ''}
                       editShort={isEditing ? edit!.short : ''}
+                      editMobileShort={isEditing ? edit!.mobileShort : ''}
                       editSaving={editSaving}
                       deleting={deletingId === r.id}
-                      onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '' })}
+                      onStartEdit={() => setEdit({ key: `CUSTOM_${r.id}`, name: r.name, short: r.short_name || '', mobileShort: r.mobile_short_name || '' })}
                       onChangeName={(v) => setEdit((prev) => (prev ? { ...prev, name: v } : prev))}
                       onChangeShort={(v) => setEdit((prev) => (prev ? { ...prev, short: v } : prev))}
+                      onChangeMobileShort={(v) => setEdit((prev) => (prev ? { ...prev, mobileShort: v } : prev))}
                       onSave={() => saveCustom(r.id)}
                       onCancel={() => setEdit(null)}
                       onDelete={() => deleteCourt(r.id)}

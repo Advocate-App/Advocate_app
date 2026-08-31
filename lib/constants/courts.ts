@@ -210,6 +210,47 @@ export function getCourtShortLabel(code: string): string {
   return map[code] || code
 }
 
+// Even shorter, mobile-only default labels (e.g. "M1" instead of
+// "MACT-1") — plain letter+number, one trailing letter added only for
+// towns other than Udaipur so nothing collides. These are just the
+// starting defaults; My Courts lets you override any of them per court.
+export function getCourtMobileShortLabel(code: string): string {
+  const map: Record<string, string> = {
+    // Udaipur
+    MACT_UDR: 'M1', MACT2_UDR: 'M2',
+    DJ_UDR: 'DJ', 'DC-UDR': 'DC',
+    ADJ1_UDR: 'A1', ADJ2_UDR: 'A2', ADJ3_UDR: 'A3', ADJ4_UDR: 'A4',
+    CJM_UDR: 'CJ',
+    ACJM1_UDR: 'J1', ACJM2_UDR: 'J2', ACJM3_UDR: 'J3', ACJM4_UDR: 'J4', ACJM5_UDR: 'J5',
+    NI1_UDR: 'N1', NI2_UDR: 'N2', NI3_UDR: 'N3', NI4_UDR: 'N4',
+    NI5_UDR: 'N5', NI6_UDR: 'N6', NI7_UDR: 'N7', NI8_UDR: 'N8',
+    DCF_UDR: 'DF', STATE_COMM: 'SC',
+    PLA_UDR: 'PL', WC_UDR: 'WC', LC_UDR: 'LC',
+    FC1_UDR: 'F1', FC2_UDR: 'F2', FC3_UDR: 'F3',
+    COMM_UDR: 'CM', GN_UDR: 'GN',
+    MMS_UDR: 'MS', S1_UDR: 'S1', S2_UDR: 'S2',
+    // MMN's own two sub-courts get P1/P2 — NI's N1-N8 already own bare "N".
+    MMN_UDR: 'MN', N1_UDR: 'P1', N2_UDR: 'P2',
+    RCT_UDR: 'RT', SAMB_AYU: 'SA', NGNM_UDR: 'NG',
+    SDMB_UDR: 'SB', SDMG_UDR: 'SG', RAA_UDR: 'RA',
+    PCPNDT_UDR: 'PN',
+    // Dungarpur / Sagwara / Mawli
+    MACT_DGP: 'M1D', NI_DGP: 'NID', DCF_DGP: 'DFD', DCR_DGP: 'DCD',
+    DCR_SGW: 'DCW', MACT_SGW: 'M1W', MACT_MAW: 'M1A',
+    // Rajsamand
+    MACT_RSM: 'M1R', NI_RSM: 'NIR', DCF_RSM: 'DFR', DCR_RSM: 'DCR',
+    // Salumber
+    MACT_SLM: 'M1L', NI_SLM: 'NIL', DCF_SLM: 'DFL',
+    // Banswara
+    MACT_BNW: 'M1B', NI_BNW: 'NIB', DCF_BNW: 'DFB', DCR_BNW: 'DCB',
+    // Nathdwara
+    MACT_NTH: 'M1N', NI_NTH: 'NIN', DCF_NTH: 'DFN', DCR_NTH: 'DCN',
+    // High Court / Other
+    jodhpur: 'HJ', jaipur: 'HP', DRT_JPR: 'DT', SCDRC_JPR: 'SD',
+  }
+  return map[code] || getCourtShortLabel(code)
+}
+
 export function getCourtSortPriority(code: string): number {
   const order: Record<string, number> = {
     MACT_UDR: 1, MACT2_UDR: 2,

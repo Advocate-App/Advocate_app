@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { name, short_name, city, builtin_code } = await req.json()
+  const { name, short_name, mobile_short_name, city, builtin_code } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: 'Court name is required' }, { status: 400 })
 
   // For built-in court overrides: upsert by builtin_code
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     if (existing && existing.length > 0) {
       const { data, error } = await supabaseAdmin
         .from('custom_courts')
-        .update({ name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
+        .update({ name: name.trim(), short_name: short_name?.trim() || null, mobile_short_name: mobile_short_name?.trim() || null, city: city?.trim() || null })
         .eq('id', existing[0].id)
         .eq('advocate_id', advocateId)
         .select('*').single()
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from('custom_courts')
-    .insert({ advocate_id: advocateId, name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null, builtin_code: builtin_code || null })
+    .insert({ advocate_id: advocateId, name: name.trim(), short_name: short_name?.trim() || null, mobile_short_name: mobile_short_name?.trim() || null, city: city?.trim() || null, builtin_code: builtin_code || null })
     .select('*')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
@@ -65,11 +65,11 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const advocateId = await getAdvocateId(req)
   if (!advocateId) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const { id, name, short_name, city } = await req.json()
+  const { id, name, short_name, mobile_short_name, city } = await req.json()
   if (!id || !name?.trim()) return NextResponse.json({ error: 'id and name required' }, { status: 400 })
   const { data, error } = await supabaseAdmin
     .from('custom_courts')
-    .update({ name: name.trim(), short_name: short_name?.trim() || null, city: city?.trim() || null })
+    .update({ name: name.trim(), short_name: short_name?.trim() || null, mobile_short_name: mobile_short_name?.trim() || null, city: city?.trim() || null })
     .eq('id', id)
     .eq('advocate_id', advocateId)
     .select('*')
