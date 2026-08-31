@@ -182,6 +182,8 @@ function CalendarPickerModal({
   onClear,
   onClose,
   todayLabel = 'Jump to Today',
+  courtLabel,
+  caseTitle,
 }: {
   initialDate: Date
   selectedDate: Date | null
@@ -191,6 +193,8 @@ function CalendarPickerModal({
   onClear?: () => void
   onClose: () => void
   todayLabel?: string
+  courtLabel?: string
+  caseTitle?: string
 }) {
   const [viewDate, setViewDate] = useState<Date>(initialDate)
   const viewKey = `${viewDate.getFullYear()}-${viewDate.getMonth()}`
@@ -217,6 +221,17 @@ function CalendarPickerModal({
         className="bg-white rounded-2xl shadow-xl p-4 w-full max-w-sm"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Which case this date is for — so it's obvious at a glance, not
+            just inferred from whatever row you clicked before this opened */}
+        {(courtLabel || caseTitle) && (
+          <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+            {courtLabel && (
+              <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded shrink-0">{courtLabel}</span>
+            )}
+            {caseTitle && <span className="text-sm font-medium text-gray-800 truncate">{caseTitle}</span>}
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2 mb-3">
           <button
             onClick={() => setViewDate((d) => subMonths(d, 1))}
@@ -1288,11 +1303,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       } else {
         partyLine = group.map((g) => `${slipShortName(g.caseData.party_plaintiff)}/${slipShortName(g.caseData.party_defendant)}`).join('; ')
       }
-      return { caseNos, partyLine }
+      // A group's note — whichever member actually has one; in practice
+      // linked cases carry one shared comment, not one each.
+      const note = group.map((g) => g.outcome_notes).find(Boolean) || null
+      return { caseNos, partyLine, note }
     }
     return {
       caseNos: formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year),
       partyLine: `${slipShortName(h.caseData.party_plaintiff)} / ${slipShortName(h.caseData.party_defendant)}`,
+      note: h.outcome_notes,
     }
   }
 
@@ -1394,10 +1413,23 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             selectedDate={current}
             hearingCounts={monthHearingCounts}
             onMonthChange={fetchMonthDates}
-            onSelect={(d) => { targetIds.forEach((id) => saveNextDate(id, toYMD(d))); setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
+            onSelect={(d) => {
+              const newYmd = toYMD(d)
+              // Already has a date and you're picking a different one —
+              // confirm it's deliberate, not a stray tap.
+              if (current && toYMD(current) !== newYmd) {
+                const ok = window.confirm(`This case already has a next date of ${formatDD_MM(toYMD(current))}. Change it to ${formatDD_MM(newYmd)}?`)
+                if (!ok) return
+              }
+              targetIds.forEach((id) => saveNextDate(id, newYmd))
+              setEditingNextDate(null)
+              setEditingNextDateGroupIds(null)
+            }}
             onClear={() => { targetIds.forEach((id) => saveNextDate(id, '')); setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
             onClose={() => { setEditingNextDate(null); setEditingNextDateGroupIds(null) }}
             todayLabel="Today"
+            courtLabel={courtShortLabel(h.caseData.court_code || '', h.caseData.court_name)}
+            caseTitle={`${h.caseData.party_plaintiff} vs ${h.caseData.party_defendant}`}
           />
         )
       })()}
@@ -2082,7 +2114,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                   {cases.map((h) => {
-                    const { caseNos, partyLine } = slipLineContent(h)
+                    const { caseNos, partyLine, note } = slipLineContent(h)
                     return (
                       <li key={h.id} style={{ padding: '1.5mm 0', borderBottom: '0.3px dotted #ddd', breakInside: 'avoid' }}>
                         {/* Fixed court + case-number prefix, then party
@@ -2098,6 +2130,14 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                             {h.caseData.case_stage && <span style={{ fontSize: '10px', color: '#888' }}> ({stageAbbrev(h.caseData.case_stage)})</span>}
                           </span>
                         </div>
+                        {/* The action/comment noted for today — one compact
+                            line under the entry, kept short so the slip
+                            still fits its half of the page for folding. */}
+                        {note && (
+                          <div style={{ fontSize: '10px', color: '#1e40af', fontStyle: 'italic', marginTop: '0.5mm', wordBreak: 'break-word' }}>
+                            → {note}
+                          </div>
+                        )}
                       </li>
                     )
                   })}
