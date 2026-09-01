@@ -25,7 +25,6 @@ import {
 } from 'date-fns'
 import {
   getCourtShortLabel,
-  getCourtMobileShortLabel,
   getCourtColor,
   getCourtSortPriority,
   eCourtsDeepLink,
@@ -422,7 +421,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
 
   // Custom court short labels
   const [customCourtMap, setCustomCourtMap] = useState<Record<string, string>>({})
-  const [customMobileCourtMap, setCustomMobileCourtMap] = useState<Record<string, string>>({})
 
   // Add hearing modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -498,18 +496,15 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
           setVisibleAdvocateIds(ownerIds)
           const { data: cc } = await supabase
             .from('custom_courts')
-            .select('id, name, short_name, mobile_short_name, builtin_code')
+            .select('id, name, short_name, builtin_code')
             .in('advocate_id', ownerIds)
           if (cc) {
             const map: Record<string, string> = {}
-            const mobileMap: Record<string, string> = {}
             for (const c of cc as CustomCourtRow[]) {
               const key = c.builtin_code || `CUSTOM_${c.id}`
               map[key] = c.short_name || c.name
-              if (c.mobile_short_name) mobileMap[key] = c.mobile_short_name
             }
             setCustomCourtMap(map)
-            setCustomMobileCourtMap(mobileMap)
           }
         }
       } catch (err) {
@@ -870,12 +865,6 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
     return builtin || fallback
   }
 
-  // Even shorter, mobile-only — editable per court on the My Courts page.
-  function courtMobileShortLabel(courtCode: string, fallback: string): string {
-    if (customMobileCourtMap[courtCode]) return customMobileCourtMap[courtCode]
-    const builtin = getCourtMobileShortLabel(courtCode)
-    return builtin || fallback
-  }
 
   // A junior's own case, shown in a senior's diary, carries this small
   // initials mark right next to the court badge — no extra column, no
@@ -1374,26 +1363,30 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const group = groupMembersByAnchor.get(h.id) || [h]
       const common = commonPartyById.get(h.id)
       const caseNos = combineCaseNumbers(group)
+      // Full names, not the print slip's shortened first-name-only form —
+      // this view is read on screen, not carried folded in a pocket.
       let partyLine: string
       if (common?.side === 'plaintiff') {
-        partyLine = `${slipShortName(common.name)} / ${group.map((g) => slipShortName(g.caseData.party_defendant)).join(', ')}`
+        partyLine = `${common.name} / ${group.map((g) => g.caseData.party_defendant).join(', ')}`
       } else if (common?.side === 'defendant') {
-        partyLine = `${group.map((g) => slipShortName(g.caseData.party_plaintiff)).join(', ')} / ${slipShortName(common.name)}`
+        partyLine = `${group.map((g) => g.caseData.party_plaintiff).join(', ')} / ${common.name}`
       } else {
-        partyLine = group.map((g) => `${slipShortName(g.caseData.party_plaintiff)}/${slipShortName(g.caseData.party_defendant)}`).join('; ')
+        partyLine = group.map((g) => `${g.caseData.party_plaintiff}/${g.caseData.party_defendant}`).join('; ')
       }
       const anchorCourtCode = group[0].caseData.court_code || ''
       return {
-        court: courtMobileShortLabel(anchorCourtCode, group[0].caseData.court_name),
+        court: courtShortLabel(anchorCourtCode, group[0].caseData.court_name),
         caseNos,
         partyLine,
+        stage: group[0].stage_on_date,
       }
     }
     const courtCode = h.caseData.court_code || ''
     return {
-      court: courtMobileShortLabel(courtCode, h.caseData.court_name),
+      court: courtShortLabel(courtCode, h.caseData.court_name),
       caseNos: formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year),
-      partyLine: `${slipShortName(h.caseData.party_plaintiff)} / ${slipShortName(h.caseData.party_defendant)}`,
+      partyLine: `${h.caseData.party_plaintiff} / ${h.caseData.party_defendant}`,
+      stage: h.stage_on_date,
     }
   }
 
@@ -1671,7 +1664,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             {displayHearings.map((h, mobileIdx) => {
               const groupSize = groupSizeById.get(h.id) || 1
               if (groupSize > 1 && !anchorIds.has(h.id)) return null
-              const { court, caseNos, partyLine } = mobileLineContent(h)
+              const { court, caseNos, partyLine, stage } = mobileLineContent(h)
               const borderColor = rowBorderColor(h)
               const isExpanded = expandedCaseId === h.case_id
               return (
@@ -1688,6 +1681,11 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                     >
                       {court} · {caseNos}
                     </Link>
+                    {stage && (
+                      <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium shrink-0">
+                        {stageAbbrev(stage)}
+                      </span>
+                    )}
                     {/* Names are never truncated — they wrap to a second
                         line instead of getting cut off with an ellipsis. */}
                     <button
