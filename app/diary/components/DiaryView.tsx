@@ -1357,37 +1357,36 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // dropped there entirely; tapping the row opens the case, where all of
   // that still lives. Same linked-case combining as the slip/desktop
   // views, just with the (even shorter) mobile court label.
-  function mobileLineContent(h: HearingWithCase) {
+  // One cell per case in the row — for a linked group this is more than
+  // one, each on its own line (own court/case number/stage), instead of
+  // squashing them into one wrapping "New, New/26" string.
+  function mobileCaseCells(h: HearingWithCase): { caseId: string; court: string; caseNo: string; stage: string | null }[] {
+    const groupSize = groupSizeById.get(h.id) || 1
+    const group = groupSize > 1 ? (groupMembersByAnchor.get(h.id) || [h]) : [h]
+    return group.map((g) => ({
+      caseId: g.case_id,
+      court: courtShortLabel(g.caseData.court_code || '', g.caseData.court_name),
+      caseNo: formatCaseNumberShort(g.caseData.case_number, g.caseData.case_year) || '—',
+      stage: g.stage_on_date,
+    }))
+  }
+
+  function mobilePartyLine(h: HearingWithCase): string {
     const groupSize = groupSizeById.get(h.id) || 1
     if (groupSize > 1) {
       const group = groupMembersByAnchor.get(h.id) || [h]
       const common = commonPartyById.get(h.id)
-      const caseNos = combineCaseNumbers(group)
       // Full names, not the print slip's shortened first-name-only form —
       // this view is read on screen, not carried folded in a pocket.
-      let partyLine: string
       if (common?.side === 'plaintiff') {
-        partyLine = `${common.name} / ${group.map((g) => g.caseData.party_defendant).join(', ')}`
-      } else if (common?.side === 'defendant') {
-        partyLine = `${group.map((g) => g.caseData.party_plaintiff).join(', ')} / ${common.name}`
-      } else {
-        partyLine = group.map((g) => `${g.caseData.party_plaintiff}/${g.caseData.party_defendant}`).join('; ')
+        return `${common.name} / ${group.map((g) => g.caseData.party_defendant).join(', ')}`
       }
-      const anchorCourtCode = group[0].caseData.court_code || ''
-      return {
-        court: courtShortLabel(anchorCourtCode, group[0].caseData.court_name),
-        caseNos,
-        partyLine,
-        stage: group[0].stage_on_date,
+      if (common?.side === 'defendant') {
+        return `${group.map((g) => g.caseData.party_plaintiff).join(', ')} / ${common.name}`
       }
+      return group.map((g) => `${g.caseData.party_plaintiff}/${g.caseData.party_defendant}`).join('; ')
     }
-    const courtCode = h.caseData.court_code || ''
-    return {
-      court: courtShortLabel(courtCode, h.caseData.court_name),
-      caseNos: formatCaseNumberShort(h.caseData.case_number, h.caseData.case_year),
-      partyLine: `${h.caseData.party_plaintiff} / ${h.caseData.party_defendant}`,
-      stage: h.stage_on_date,
-    }
+    return `${h.caseData.party_plaintiff} / ${h.caseData.party_defendant}`
   }
 
   return (
@@ -1664,7 +1663,8 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             {displayHearings.map((h, mobileIdx) => {
               const groupSize = groupSizeById.get(h.id) || 1
               if (groupSize > 1 && !anchorIds.has(h.id)) return null
-              const { court, caseNos, partyLine, stage } = mobileLineContent(h)
+              const cells = mobileCaseCells(h)
+              const partyLine = mobilePartyLine(h)
               const borderColor = rowBorderColor(h)
               const isExpanded = expandedCaseId === h.case_id
               return (
@@ -1673,30 +1673,37 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   className="bg-white rounded-lg border border-gray-200 overflow-hidden"
                   style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
                 >
-                  <div className="flex items-start gap-2 px-3 py-2 text-xs">
-                    <span className="text-gray-300 font-mono shrink-0">{mobileIdx + 1}.</span>
-                    <Link
-                      href={`/diary/cases/${h.case_id}`}
-                      className="font-mono font-semibold text-gray-700 shrink-0"
-                    >
-                      {court} · {caseNos}
-                    </Link>
-                    {stage && (
-                      <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium shrink-0">
-                        {stageAbbrev(stage)}
-                      </span>
-                    )}
-                    {/* Names are never truncated — they wrap to a second
-                        line instead of getting cut off with an ellipsis. */}
+                  {/* A real grid, not a wrapping flex row — a linked
+                      group's several case numbers stack one per line in
+                      their own column instead of squashing into one
+                      wrapping string, and every row lines up the same way. */}
+                  <div className="grid grid-cols-[1.25rem_minmax(0,auto)_1fr_auto] gap-x-2 items-start px-3 py-2 text-xs">
+                    <span className="text-gray-300 font-mono pt-0.5">{mobileIdx + 1}.</span>
+                    <div className="flex flex-col gap-1">
+                      {cells.map((c) => (
+                        <div key={c.caseId} className="flex items-center gap-1">
+                          <Link href={`/diary/cases/${c.caseId}`} className="font-mono font-semibold text-gray-700 whitespace-nowrap">
+                            {c.court} · {c.caseNo}
+                          </Link>
+                          {c.stage && (
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium whitespace-nowrap">
+                              {stageAbbrev(c.stage)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Names are never truncated — they wrap instead of
+                        getting cut off with an ellipsis. */}
                     <button
                       onClick={() => toggleHistory(h.case_id)}
-                      className="flex-1 min-w-0 text-gray-800 text-left whitespace-normal break-words"
+                      className="min-w-0 text-gray-800 text-left whitespace-normal break-words pt-0.5"
                     >
                       {partyLine}
                     </button>
                     <button
                       onClick={() => { setEditingNextDate(h.id); setEditingNextDateGroupIds(null) }}
-                      className="font-mono text-gray-500 shrink-0"
+                      className="font-mono text-gray-500 pt-0.5"
                     >
                       {formatDD_MM(h.next_hearing_date) || '—'}
                     </button>
