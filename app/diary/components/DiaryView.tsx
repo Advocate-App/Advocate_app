@@ -1360,15 +1360,18 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
   // One cell per case in the row — for a linked group this is more than
   // one, each on its own line (own court/case number/stage), instead of
   // squashing them into one wrapping "New, New/26" string.
-  function mobileCaseCells(h: HearingWithCase): { caseId: string; court: string; caseNo: string; stage: string | null }[] {
+  // Court shown once (linked cases are almost always the same court/
+  // tribunal), case numbers combined into one "New, New/26" string same
+  // as the desktop view, stage shown once below it — not one full line
+  // repeated per linked case.
+  function mobileCourtCaseCell(h: HearingWithCase): { court: string; caseNos: string; stage: string | null } {
     const groupSize = groupSizeById.get(h.id) || 1
     const group = groupSize > 1 ? (groupMembersByAnchor.get(h.id) || [h]) : [h]
-    return group.map((g) => ({
-      caseId: g.case_id,
-      court: courtShortLabel(g.caseData.court_code || '', g.caseData.court_name),
-      caseNo: formatCaseNumberShort(g.caseData.case_number, g.caseData.case_year) || '—',
-      stage: g.stage_on_date,
-    }))
+    return {
+      court: courtShortLabel(group[0].caseData.court_code || '', group[0].caseData.court_name),
+      caseNos: combineCaseNumbers(group),
+      stage: group[0].stage_on_date,
+    }
   }
 
   function mobilePartyLine(h: HearingWithCase): string {
@@ -1663,7 +1666,7 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
             {displayHearings.map((h, mobileIdx) => {
               const groupSize = groupSizeById.get(h.id) || 1
               if (groupSize > 1 && !anchorIds.has(h.id)) return null
-              const cells = mobileCaseCells(h)
+              const cell = mobileCourtCaseCell(h)
               const partyLine = mobilePartyLine(h)
               const borderColor = rowBorderColor(h)
               const isExpanded = expandedCaseId === h.case_id
@@ -1673,25 +1676,21 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   className="bg-white rounded-lg border border-gray-200 overflow-hidden"
                   style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
                 >
-                  {/* A real grid, not a wrapping flex row — a linked
-                      group's several case numbers stack one per line in
-                      their own column instead of squashing into one
-                      wrapping string, and every row lines up the same way. */}
+                  {/* A real grid, not a wrapping flex row — court + a
+                      linked group's case numbers combined into one line
+                      ("New, New/26"), stage below that (once, not
+                      repeated), so every row lines up the same way. */}
                   <div className="grid grid-cols-[1.25rem_minmax(0,auto)_1fr_auto] gap-x-2 items-start px-3 py-2 text-xs">
                     <span className="text-gray-300 font-mono pt-0.5">{mobileIdx + 1}.</span>
-                    <div className="flex flex-col gap-1">
-                      {cells.map((c) => (
-                        <div key={c.caseId} className="flex items-center gap-1">
-                          <Link href={`/diary/cases/${c.caseId}`} className="font-mono font-semibold text-gray-700 whitespace-nowrap">
-                            {c.court} · {c.caseNo}
-                          </Link>
-                          {c.stage && (
-                            <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium whitespace-nowrap">
-                              {stageAbbrev(c.stage)}
-                            </span>
-                          )}
-                        </div>
-                      ))}
+                    <div className="flex flex-col gap-0.5">
+                      <Link href={`/diary/cases/${h.case_id}`} className="font-mono font-semibold text-gray-700 whitespace-nowrap">
+                        {cell.court} · {cell.caseNos}
+                      </Link>
+                      {cell.stage && (
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium self-start whitespace-nowrap">
+                          {stageAbbrev(cell.stage)}
+                        </span>
+                      )}
                     </div>
                     {/* Names are never truncated — they wrap instead of
                         getting cut off with an ellipsis. */}
