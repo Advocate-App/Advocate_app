@@ -148,10 +148,16 @@ function stageAbbrev(stage: string): string {
 }
 
 function rowBorderColor(hearing: HearingRow): string {
-  if (hearing.happened) return '#22c55e'
   const hDate = parseISO(hearing.hearing_date)
-  if (isToday(hDate)) return '#f59e0b'
-  if (isPast(startOfDay(hDate))) return '#ef4444'
+  const dueToday = isToday(hDate)
+  const overdue = isPast(startOfDay(hDate)) && !dueToday
+  // Due today or already past with no next date given yet — that's not
+  // "done", regardless of whether a stage was recorded, so it stays red
+  // instead of turning green just because *something* was marked.
+  if ((dueToday || overdue) && !hearing.next_hearing_date) return '#ef4444'
+  if (hearing.happened && hearing.next_hearing_date) return '#22c55e'
+  if (dueToday) return '#f59e0b'
+  if (overdue) return '#ef4444'
   return '#d1d5db'
 }
 
