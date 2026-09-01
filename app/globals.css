@@ -98,6 +98,18 @@ body {
     text-transform: uppercase !important;
   }
 
+  /* The blanket `button { display: none }` above is meant for genuine
+     action controls (Add Hearing, Edit, Delete, quick-action chips…) —
+     but several diary table cells (court name, party names, stage,
+     next date) are clickable buttons purely so they're editable on
+     screen, and are the actual data on the page. Hiding them left the
+     printed diary showing empty cells. Un-hide buttons specifically
+     inside a table; anything that should still stay hidden already sits
+     inside a print:hidden container (e.g. the Action column). */
+  table button {
+    display: inline !important;
+  }
+
   td {
     border: 1px solid #ddd !important;
     padding: 4px 6px !important;
