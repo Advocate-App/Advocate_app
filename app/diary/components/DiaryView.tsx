@@ -1667,6 +1667,9 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
               const groupSize = groupSizeById.get(h.id) || 1
               if (groupSize > 1 && !anchorIds.has(h.id)) return null
               const cell = mobileCourtCaseCell(h)
+              // A linked group's numbers ("New, New/26") each get their
+              // own line — court prefixes just the first one.
+              const caseNoLines = cell.caseNos.split(', ')
               const partyLine = mobilePartyLine(h)
               const borderColor = rowBorderColor(h)
               const isExpanded = expandedCaseId === h.case_id
@@ -1676,16 +1679,25 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
                   className="bg-white rounded-lg border border-gray-200 overflow-hidden"
                   style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}
                 >
-                  {/* A real grid, not a wrapping flex row — court + a
-                      linked group's case numbers combined into one line
-                      ("New, New/26"), stage below that (once, not
-                      repeated), so every row lines up the same way. */}
+                  {/* A real grid, not a wrapping flex row — court on the
+                      first line, then each of a linked group's case
+                      numbers on its own line below, stage once at the
+                      bottom — not repeated, not squashed into one string. */}
                   <div className="grid grid-cols-[1.25rem_minmax(0,auto)_1fr_auto] gap-x-2 items-start px-3 py-2 text-xs">
                     <span className="text-gray-300 font-mono pt-0.5">{mobileIdx + 1}.</span>
                     <div className="flex flex-col gap-0.5">
                       <Link href={`/diary/cases/${h.case_id}`} className="font-mono font-semibold text-gray-700 whitespace-nowrap">
-                        {cell.court} · {cell.caseNos}
+                        {cell.court} · {caseNoLines[0]}{caseNoLines.length > 1 ? ',' : ''}
                       </Link>
+                      {caseNoLines.slice(1).map((line, i) => (
+                        <Link
+                          key={i}
+                          href={`/diary/cases/${h.case_id}`}
+                          className="font-mono font-semibold text-gray-700 whitespace-nowrap"
+                        >
+                          {line}{i < caseNoLines.length - 2 ? ',' : ''}
+                        </Link>
+                      ))}
                       {cell.stage && (
                         <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-medium self-start whitespace-nowrap">
                           {stageAbbrev(cell.stage)}
