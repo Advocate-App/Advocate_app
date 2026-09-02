@@ -10,6 +10,7 @@ import { Search, ChevronLeft, ChevronRight, Plus, X, SlidersHorizontal } from 'l
 
 interface CaseRow {
   id: string
+  court_level: string
   court_code: string | null
   court_name: string
   city: string | null
@@ -76,6 +77,10 @@ export default function AllCasesPage() {
   const [showFilters, setShowFilters] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // High Court / District Court tab — separate from the other filters,
+  // always visible, not tucked inside the filter panel.
+  const [levelTab, setLevelTab] = useState<'all' | 'district' | 'high_court'>('all')
+
   // Filters
   const [courtFilter, setCourtFilter] = useState('all')
   const [cityFilter, setCityFilter] = useState('all')
@@ -97,7 +102,7 @@ export default function AllCasesPage() {
         fetchAllRows<CaseRow>((from, to) =>
           supabase
             .from('cases')
-            .select('id, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, filed_date, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
+            .select('id, court_level, court_code, court_name, city, case_number, case_year, case_type, party_plaintiff, party_defendant, client_name, case_stage, status, filed_date, is_company_case, payment_received, bills_generated, order_passed, appeal_filed')
             .order('party_plaintiff', { ascending: true })
             .range(from, to)
         ),
@@ -126,28 +131,40 @@ export default function AllCasesPage() {
     }
   }, [customCourts])
 
+  // Cases in the active High Court / District Court tab — everything
+  // else (the other filters, the search, the counts) works off this.
+  const tabCases = useMemo(
+    () => (levelTab === 'all' ? allCases : allCases.filter((c) => c.court_level === levelTab)),
+    [allCases, levelTab]
+  )
+  const levelCounts = useMemo(() => ({
+    all: allCases.length,
+    district: allCases.filter((c) => c.court_level === 'district').length,
+    high_court: allCases.filter((c) => c.court_level === 'high_court').length,
+  }), [allCases])
+
   // Distinct filter options, built from the cases actually on file
   const courtOptions = useMemo(() => {
     const seen = new Map<string, string>()
-    for (const c of allCases) {
+    for (const c of tabCases) {
       const code = c.court_code || c.court_name
       if (!seen.has(code)) seen.set(code, courtLabel(c.court_code, c.court_name))
     }
     return Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1]))
-  }, [allCases, courtLabel])
+  }, [tabCases, courtLabel])
 
   const stageOptions = useMemo(() => {
     const set = new Set<string>()
-    for (const c of allCases) if (c.case_stage) set.add(c.case_stage)
+    for (const c of tabCases) if (c.case_stage) set.add(c.case_stage)
     return Array.from(set).sort()
-  }, [allCases])
+  }, [tabCases])
 
   // Distinct company names, for picking one specific company's cases
   const companyOptions = useMemo(() => {
     const set = new Set<string>()
-    for (const c of allCases) if (c.is_company_case && c.client_name) set.add(c.client_name)
+    for (const c of tabCases) if (c.is_company_case && c.client_name) set.add(c.client_name)
     return Array.from(set).sort()
-  }, [allCases])
+  }, [tabCases])
 
   const activeFilterCount = [
     courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter,
@@ -167,7 +184,15 @@ export default function AllCasesPage() {
   }
 
   // Reset to page 1 whenever search or filters change
-  useEffect(() => { setPage(1) }, [query, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
+  useEffect(() => { setPage(1) }, [query, levelTab, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
+
+  // Switching tabs clears the specific-court pick — a District court
+  // selected under "All" won't exist once you're only looking at High
+  // Court, and staying on it would just silently show zero results.
+  function selectLevelTab(tab: 'all' | 'district' | 'high_court') {
+    setLevelTab(tab)
+    setCourtFilter('all')
+  }
 
   const filtered = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -188,12 +213,12 @@ export default function AllCasesPage() {
       return true
     }
 
-    if (terms.length === 0) return allCases.filter(passesFilters)
+    if (terms.length === 0) return tabCases.filter(passesFilters)
 
     // Ranked, not just filtered — an exact/whole-word hit always outranks a
     // loose typo-tolerant one, so the right case shows up first.
     const scored: { row: CaseRow; score: number }[] = []
-    for (const c of allCases) {
+    for (const c of tabCases) {
       if (!passesFilters(c)) continue
       const fields = [
         c.case_number, c.party_plaintiff, c.party_defendant, c.client_name,
@@ -215,7 +240,7 @@ export default function AllCasesPage() {
     }
     scored.sort((a, b) => a.score - b.score)
     return scored.map((s) => s.row)
-  }, [allCases, query, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
+  }, [tabCases, query, courtFilter, cityFilter, statusFilter, companyFilter, companyNameFilter, stageFilter, paymentFilter, billsFilter, orderFilter, appealFilter, filedFrom, filedTo])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageCases = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -228,20 +253,41 @@ export default function AllCasesPage() {
           <h1 className="text-2xl font-bold" style={{ color: '#1e3a5f', fontFamily: 'Georgia, serif' }}>All Cases</h1>
           {!loading && (
             <p className="text-sm text-gray-400 mt-0.5">
-              {filtered.length === allCases.length
-                ? `${allCases.length} cases total`
-                : `${filtered.length} of ${allCases.length} cases`}
+              {filtered.length === tabCases.length
+                ? `${filtered.length} case${filtered.length !== 1 ? 's' : ''}${levelTab !== 'all' ? ` (of ${allCases.length} total)` : ''}`
+                : `${filtered.length} of ${tabCases.length} cases${levelTab !== 'all' ? ` (${allCases.length} total)` : ''}`}
             </p>
           )}
         </div>
         <Link
           href="/diary/cases/new"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white shrink-0"
           style={{ background: '#1e3a5f' }}
         >
           <Plus className="w-4 h-4" />
           New Case
         </Link>
+      </div>
+
+      {/* High Court / District Court tabs — all High Court cases combined,
+          all District Court cases combined, or everything together. */}
+      <div className="flex items-center gap-1 mb-4">
+        {([
+          { key: 'all', label: 'All' },
+          { key: 'district', label: 'District Court' },
+          { key: 'high_court', label: 'High Court' },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => selectLevelTab(tab.key)}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              levelTab === tab.key ? 'text-white' : 'text-gray-600 bg-white border border-gray-200 hover:bg-gray-50'
+            }`}
+            style={levelTab === tab.key ? { background: '#1e3a5f' } : undefined}
+          >
+            {tab.label} <span className="opacity-70">({levelCounts[tab.key]})</span>
+          </button>
+        ))}
       </div>
 
       {/* Search bar + filter toggle */}
