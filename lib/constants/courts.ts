@@ -117,7 +117,7 @@ export const HC_CASE_TYPES = [
   'SB Criminal Writ Petition', 'DB Criminal Writ Petition',
   'SB Civil Appeal', 'DB Civil Appeal',
   'SB Criminal Appeal', 'DB Criminal Appeal',
-  'SB Civil Misc Petition', 'SB Criminal Misc Petition',
+  'SB Civil Misc Petition', 'SB Criminal Misc Petition', 'SB Civil Misc Appeal',
   'Civil Revision Petition', 'Criminal Revision Petition',
   'Review Petition', 'Caveat', 'Contempt Petition',
   'Transfer Petition', 'Bail Application', 'Anticipatory Bail',
