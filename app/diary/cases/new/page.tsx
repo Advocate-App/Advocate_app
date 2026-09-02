@@ -471,7 +471,9 @@ export default function NewCasePage() {
         party_plaintiff: form.party_plaintiff.trim(),
         party_defendant: form.party_defendant.trim(),
         status: 'active',
-        client_id: selectedClientId || null,
+        // "Private" is a pinned option in the picker, not a real saved
+        // client — its id never gets sent to the database.
+        client_id: (selectedClientId && selectedClientId !== '__PRIVATE__') ? selectedClientId : null,
         client_name: form.client_name.trim() || null,
         client_id_2: form.client_side === 'both' ? (selectedClientId2 || null) : null,
         client_name_2: form.client_side === 'both' ? (form.client_name_2.trim() || null) : null,
@@ -524,6 +526,10 @@ export default function NewCasePage() {
   const sideOptions = (isDistrict ? CLIENT_SIDES_DISTRICT : CLIENT_SIDES_HC).map(s => ({ value: s, label: capitalize(s) }))
 
   const clientOptions = [
+    // Always first — for a case with no actual company behind it, so
+    // it's a deliberate one-click choice instead of leaving the field
+    // blank or typing something different each time.
+    { value: '__PRIVATE__', label: 'Private (no company)' },
     ...(clients.length > 0 ? [{ value: '__HEADER__', label: 'Saved Clients' }] : []),
     ...clients.map(c => ({ value: c.id, label: c.name, sub: [c.phone, c.city].filter(Boolean).join(' · ') })),
     { value: '__ACTION__', label: 'Add new client…' },
@@ -686,17 +692,34 @@ export default function NewCasePage() {
                 onChange={(v) => {
                   if (v === '__HEADER__') return
                   if (v === '__ACTION__') { setShowAddClient(true); return }
+                  if (v === '__PRIVATE__') {
+                    setSelectedClientId('__PRIVATE__')
+                    set('client_name', 'Private')
+                    setShowAddClient(false)
+                    return
+                  }
                   const c = clients.find(c => c.id === v)
                   setSelectedClientId(v)
                   set('client_name', c?.name || '')
                   setShowAddClient(false)
                 }}
               />
-              {selectedClientId && (
+              {selectedClientId && selectedClientId !== '__PRIVATE__' && (
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
                     <Check className="w-3 h-3" />
                     Linked to saved client
+                  </span>
+                  <button onClick={() => { setSelectedClientId(''); set('client_name', '') }}
+                    className="text-xs text-gray-400 hover:text-gray-600">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+              {selectedClientId === '__PRIVATE__' && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="flex items-center gap-1 text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                    Private — no company
                   </span>
                   <button onClick={() => { setSelectedClientId(''); set('client_name', '') }}
                     className="text-xs text-gray-400 hover:text-gray-600">

@@ -28,6 +28,18 @@ export async function POST(req: NextRequest) {
     // next_hearing_date is not a column on cases — handled separately for hearings
     const { next_hearing_date, ...caseFields } = body
 
+    // Picking a client from the dropdown used to not mark the case as a
+    // company case at all — you had to remember a separate toggle on the
+    // case page afterward, and most people didn't, which is why Company
+    // Cases was only showing a fraction of the real count. Now it's
+    // derived straight from whether the picked client is a company.
+    let isCompanyCase = false
+    if (caseFields.client_id) {
+      const { data: clientRow } = await supabaseAdmin
+        .from('clients').select('is_company').eq('id', caseFields.client_id).maybeSingle()
+      isCompanyCase = !!clientRow?.is_company
+    }
+
     const baseCaseData = {
       advocate_id: advocateId,
       court_level: caseFields.court_level,
@@ -41,6 +53,7 @@ export async function POST(req: NextRequest) {
       status: caseFields.status || 'active',
       client_name: caseFields.client_name || null,
       client_name_2: caseFields.client_name_2 || null,
+      is_company_case: isCompanyCase,
       client_side: validClientSides.includes(body.client_side) ? body.client_side : null,
       our_role: caseFields.our_role || null,
       opposite_advocate: caseFields.opposite_advocate || null,
