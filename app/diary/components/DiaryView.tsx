@@ -543,10 +543,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const supabase = createClient()
       const start = toYMD(startOfMonth(monthDate))
       const end = toYMD(endOfMonth(monthDate))
+      // Same High Court exclusion as the day list below, so the calendar's
+      // count badges match what actually shows for that date.
       const { data, error } = await supabase
         .from('hearings')
-        .select('hearing_date, cases!inner(advocate_id)')
+        .select('hearing_date, cases!inner(advocate_id, court_level)')
         .in('cases.advocate_id', visibleAdvocateIds)
+        .neq('cases.court_level', 'high_court')
         .gte('hearing_date', start)
         .lte('hearing_date', end)
       if (error) throw error
@@ -613,7 +616,13 @@ export default function DiaryView({ initialDate }: { initialDate: Date }) {
       const combined: HearingWithCase[] = []
       for (const h of hearingRows as HearingRow[]) {
         const c = caseMap.get(h.case_id)
-        if (c && visibleAdvocateIds && visibleAdvocateIds.includes(c.advocate_id)) combined.push({ ...h, caseData: c })
+        // High Court cases are hidden from the Diary for now — flip this
+        // condition off (delete the `c.court_level !== 'high_court' &&`
+        // part) whenever High Court is ready to show here again. The
+        // cases themselves are untouched; this only affects this list.
+        if (c && c.court_level !== 'high_court' && visibleAdvocateIds && visibleAdvocateIds.includes(c.advocate_id)) {
+          combined.push({ ...h, caseData: c })
+        }
       }
 
       combined.sort((a, b) =>
