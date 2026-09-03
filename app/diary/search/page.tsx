@@ -113,7 +113,11 @@ export default function AllCasesPage() {
       setLoading(false)
     }
     load()
-    inputRef.current?.focus()
+    // Same mobile fix as Find Case — auto-focusing pops the keyboard on a
+    // phone, and the first tap on a result then just dismisses the
+    // keyboard instead of opening it. Only auto-focus with a real
+    // keyboard already (mouse/trackpad), never on a touchscreen.
+    if (window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus()
   }, [])
 
   // court_code -> short label (DB override first, then built-in, then raw name)

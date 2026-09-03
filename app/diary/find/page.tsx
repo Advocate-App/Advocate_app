@@ -78,7 +78,12 @@ export default function FindCasePage() {
       setLoading(false)
     }
     load()
-    inputRef.current?.focus()
+    // Auto-focusing on a phone pops the on-screen keyboard immediately —
+    // the first tap on a result below then just dismisses the keyboard
+    // instead of opening the case, so it needs a second tap and feels
+    // stuck. Only auto-focus where there's a real keyboard already
+    // (mouse/trackpad devices), never on a touchscreen.
+    if (window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus()
   }, [])
 
   const courtLabel = useMemo(() => {
