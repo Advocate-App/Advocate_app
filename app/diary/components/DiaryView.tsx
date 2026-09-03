@@ -370,6 +370,20 @@ function slipShortName(name: string): string {
 export default function DiaryView({ initialDate }: { initialDate: Date }) {
   const router = useRouter()
   const [selectedDate, setSelectedDate] = useState<Date>(initialDate)
+
+  // The browser back/forward buttons change the URL (/diary/date/X) —
+  // Next.js reuses this same component instance rather than remounting
+  // it, so selectedDate (only ever initialized from initialDate once,
+  // above) never picked that up. The page kept quietly showing whatever
+  // date it had, out of sync with the URL and with whatever this same
+  // hearing/case data effects further down expected — that mismatch is
+  // what was surfacing as an error after going back. Re-sync whenever
+  // the URL's date actually changes; skip it when it already matches
+  // (e.g. right after this component's own goDay/goToDate already set
+  // it locally, before the URL prop change trickles back down).
+  useEffect(() => {
+    setSelectedDate((prev) => (toYMD(prev) === toYMD(initialDate) ? prev : initialDate))
+  }, [initialDate])
   const [advocateId, setAdvocateId] = useState<string | null>(null)
   const [advocateName, setAdvocateName] = useState('')
   // Juniors don't own any cases themselves — they help out on Avi's and
