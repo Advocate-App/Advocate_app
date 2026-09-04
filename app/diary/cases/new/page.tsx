@@ -14,13 +14,20 @@ import {
   CLIENT_SIDES_DISTRICT,
   CLIENT_SIDES_HC,
 } from '@/lib/constants/courts'
-import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check, FileUp, File as FileIcon } from 'lucide-react'
+import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check, FileUp, File as FileIcon, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 type CourtLevel = 'district' | 'high_court'
+
+function formatBytes(bytes: number | null): string {
+  if (!bytes) return '--'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
 
 interface CustomCourt { id: string; name: string; city: string | null; builtin_code: string | null }
 interface ClientRecord { id: string; name: string; phone: string | null; email: string | null; city: string | null }
@@ -292,6 +299,8 @@ export default function NewCasePage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [docLabel, setDocLabel] = useState('')
   const [docUploadNote, setDocUploadNote] = useState<string | null>(null)
+  const [docCompressingName, setDocCompressingName] = useState<string | null>(null)
+  const [docCompressionNote, setDocCompressionNote] = useState<string | null>(null)
 
   // Courts & clients
   const [customCourts, setCustomCourts] = useState<CustomCourt[]>([])
@@ -460,11 +469,16 @@ export default function NewCasePage() {
     const supabase = createClient()
     const baseLabel = docLabel.trim() || 'Document'
     const notes: string[] = []
+    let totalBefore = 0
+    let totalAfter = 0
 
     for (let i = 0; i < pendingFiles.length; i++) {
       const rawFile = pendingFiles[i]
+      setDocCompressingName(rawFile.name)
       try {
-        const { file } = await compressFile(rawFile)
+        const { file, originalBytes, compressedBytes } = await compressFile(rawFile)
+        totalBefore += originalBytes
+        totalAfter += compressedBytes
         if (file.size > MAX_UPLOAD_BYTES) {
           notes.push(`${rawFile.name} — still too large after compression, add it later from the case page instead.`)
           continue
@@ -492,7 +506,19 @@ export default function NewCasePage() {
         notes.push(`${rawFile.name} — ${err instanceof Error ? err.message : 'failed to upload'}`)
       }
     }
+    setDocCompressingName(null)
     if (notes.length > 0) setDocUploadNote(notes.join(' · '))
+    // Same "always show something happened" confirmation as the case
+    // page's own upload — even a file that was already efficiently
+    // encoded and didn't shrink further still gets a visible result.
+    const pct = totalBefore > 0 ? Math.round((1 - totalAfter / totalBefore) * 100) : 0
+    if (totalBefore > 0) {
+      setDocCompressionNote(
+        pct > 0
+          ? `Compressed ${formatBytes(totalBefore)} → ${formatBytes(totalAfter)} (${pct}% smaller)`
+          : `Compression checked — ${formatBytes(totalAfter)} (already efficiently encoded)`
+      )
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -571,6 +597,11 @@ export default function NewCasePage() {
           party_plaintiff: form.party_plaintiff.trim(),
           party_defendant: form.party_defendant.trim(),
         })
+        // Give a beat to actually read the compression result before
+        // leaving — the case's own Documents tab shows the file itself.
+        await new Promise((resolve) => setTimeout(resolve, 1600))
+        router.push(`/diary/cases/${json.id}`)
+        return
       }
       router.push('/diary/search')
     } catch (err: unknown) {
@@ -896,21 +927,39 @@ export default function NewCasePage() {
 
           {pendingFiles.length > 0 && (
             <div className="space-y-1.5">
-              {pendingFiles.map((f, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-                  <FileIcon className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="flex-1 min-w-0 truncate text-gray-700">{f.name}</span>
-                  <button type="button" onClick={() => removePendingFile(i)} className="text-gray-400 hover:text-red-500 shrink-0">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-              <p className="text-xs text-gray-400">
-                Uploaded once you save the case below{pendingFiles.length > 1 ? ` — numbered "${docLabel.trim() || 'Document'} 1", "${docLabel.trim() || 'Document'} 2"…` : ''}.
-              </p>
+              {pendingFiles.map((f, i) => {
+                const compressingThis = docCompressingName === f.name
+                return (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    {compressingThis ? (
+                      <Loader2 className="w-4 h-4 text-[#1e3a5f] shrink-0 animate-spin" />
+                    ) : (
+                      <FileIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                    )}
+                    <span className="flex-1 min-w-0 truncate text-gray-700">{f.name}</span>
+                    {compressingThis && <span className="text-xs text-gray-400 shrink-0">Compressing…</span>}
+                    <button type="button" onClick={() => removePendingFile(i)} disabled={saving} className="text-gray-400 hover:text-red-500 shrink-0 disabled:opacity-30">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
+              {!docCompressionNote && (
+                <p className="text-xs text-gray-400">
+                  Uploaded once you save the case below{pendingFiles.length > 1 ? ` — numbered "${docLabel.trim() || 'Document'} 1", "${docLabel.trim() || 'Document'} 2"…` : ''}.
+                </p>
+              )}
             </div>
           )}
 
+          {/* Same "how much compression saved" confirmation as the case
+              page's own Documents tab — shown for a moment after saving,
+              before landing on the new case's page. */}
+          {docCompressionNote && (
+            <p className="text-xs text-green-700 bg-green-50 px-3 py-2 rounded-lg flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 shrink-0" /> {docCompressionNote}
+            </p>
+          )}
           {docUploadNote && <p className="text-xs text-red-600">{docUploadNote}</p>}
         </div>
 
@@ -956,7 +1005,7 @@ export default function NewCasePage() {
             style={{ background: saving ? '#4b6a8a' : '#1e3a5f' }}
             onMouseEnter={(e) => { if (!saving) e.currentTarget.style.background = '#15304f' }}
             onMouseLeave={(e) => { if (!saving) e.currentTarget.style.background = '#1e3a5f' }}>
-            {saving ? 'Saving...' : 'Save Case'}
+            {saving ? (docCompressingName ? 'Uploading documents...' : 'Saving...') : 'Save Case'}
           </button>
         </div>
       </div>
