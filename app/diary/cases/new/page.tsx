@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { buildDocFileName } from '@/lib/docNaming'
 import {
   DISTRICT_COURTS,
   DISTRICT_CASE_TYPES,
@@ -13,7 +14,7 @@ import {
   CLIENT_SIDES_DISTRICT,
   CLIENT_SIDES_HC,
 } from '@/lib/constants/courts'
-import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check } from 'lucide-react'
+import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check, FileUp, File as FileIcon } from 'lucide-react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -286,10 +287,17 @@ export default function NewCasePage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [customStage, setCustomStage] = useState('')
 
+  // Documents — staged here, uploaded right after the case itself saves
+  // successfully (same compress + name + upload flow the case page uses).
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [docLabel, setDocLabel] = useState('')
+  const [docUploadNote, setDocUploadNote] = useState<string | null>(null)
+
   // Courts & clients
   const [customCourts, setCustomCourts] = useState<CustomCourt[]>([])
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [authToken, setAuthToken] = useState('')
+  const [advocateId, setAdvocateId] = useState('')
   const [showAddCourt, setShowAddCourt] = useState(false)
   const [showAddClient, setShowAddClient] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -312,6 +320,8 @@ export default function NewCasePage() {
       if (!session) return
       const token = session.access_token
       setAuthToken(token)
+      const { data: adv } = await supabase.from('advocates').select('id').eq('user_id', session.user.id).limit(1).maybeSingle()
+      if (adv) setAdvocateId(adv.id)
       const headers = { Authorization: `Bearer ${token}` }
       // Gracefully ignore errors (tables may not exist yet)
       const [cr, cl] = await Promise.all([
@@ -426,6 +436,66 @@ export default function NewCasePage() {
   }
 
   // ---------------------------------------------------------------------------
+  // Documents — uploaded right after the case itself is created, same
+  // compress + name + upload flow as the case detail page.
+  // ---------------------------------------------------------------------------
+  const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+  function addPendingFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setPendingFiles((prev) => [...prev, ...Array.from(files)])
+  }
+
+  function removePendingFile(index: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function uploadPendingDocuments(caseId: string, caseForNaming: { court_code: string | null; court_name: string; party_plaintiff: string; party_defendant: string }) {
+    if (!advocateId || pendingFiles.length === 0) return
+    // Dynamic import — lib/compress touches browser-only APIs (pdf-lib's
+    // DOMMatrix) at module-evaluation time, which crashes Next's build-time
+    // prerender of this (static, no dynamic segment) route if imported
+    // statically at the top of the file.
+    const { compressFile } = await import('@/lib/compress')
+    const supabase = createClient()
+    const baseLabel = docLabel.trim() || 'Document'
+    const notes: string[] = []
+
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const rawFile = pendingFiles[i]
+      try {
+        const { file } = await compressFile(rawFile)
+        if (file.size > MAX_UPLOAD_BYTES) {
+          notes.push(`${rawFile.name} — still too large after compression, add it later from the case page instead.`)
+          continue
+        }
+        const label = pendingFiles.length > 1 ? `${baseLabel} ${i + 1}` : baseLabel
+        const ext = (file.name.split('.').pop() || 'pdf').toLowerCase()
+        const displayName = buildDocFileName(caseForNaming, label, ext)
+        const ts = Date.now()
+        const safeName = displayName.replace(/[^a-zA-Z0-9().-]/g, '_')
+        const storagePath = `${advocateId}/${caseId}/${ts}_${safeName}`
+
+        const { error: uploadErr } = await supabase.storage.from('case-documents').upload(storagePath, file)
+        if (uploadErr) { notes.push(`${rawFile.name} — upload failed: ${uploadErr.message}`); continue }
+
+        await supabase.from('case_documents').insert({
+          case_id: caseId,
+          file_name: displayName,
+          storage_path: storagePath,
+          file_size_bytes: file.size,
+          mime_type: file.type,
+          doc_type: 'other',
+          uploaded_by: advocateId,
+        })
+      } catch (err) {
+        notes.push(`${rawFile.name} — ${err instanceof Error ? err.message : 'failed to upload'}`)
+      }
+    }
+    if (notes.length > 0) setDocUploadNote(notes.join(' · '))
+  }
+
+  // ---------------------------------------------------------------------------
   // Save handler
   // ---------------------------------------------------------------------------
   async function handleSave() {
@@ -494,6 +564,14 @@ export default function NewCasePage() {
       })
       const json = await res.json()
       if (!res.ok) { setSaveError(json.error || 'Failed to save case'); setSaving(false); return }
+      if (pendingFiles.length > 0) {
+        await uploadPendingDocuments(json.id, {
+          court_code: courtCode,
+          court_name: courtName,
+          party_plaintiff: form.party_plaintiff.trim(),
+          party_defendant: form.party_defendant.trim(),
+        })
+      }
       router.push('/diary/search')
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Something went wrong')
@@ -792,7 +870,51 @@ export default function NewCasePage() {
           </div>
         </div>
 
-        {/* ── Section 4: Status ── */}
+        {/* ── Section 4: Documents (optional) ── */}
+        <div className="p-6 space-y-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-800" style={{ fontFamily: 'Georgia, serif' }}>Documents</h3>
+            <p className="text-sm text-gray-500 mt-0.5">Optional — add a PDF or a photo now, or later from the case page.</p>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <TextInput label="Document Label" value={docLabel} onChange={setDocLabel} placeholder="e.g. Petition, Vakalatnama, Order…" />
+            </div>
+            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors shrink-0">
+              <FileUp className="w-4 h-4" />
+              Add PDF or Photo
+              <input
+                type="file"
+                multiple
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => { addPendingFiles(e.target.files); e.target.value = '' }}
+              />
+            </label>
+          </div>
+
+          {pendingFiles.length > 0 && (
+            <div className="space-y-1.5">
+              {pendingFiles.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                  <FileIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="flex-1 min-w-0 truncate text-gray-700">{f.name}</span>
+                  <button type="button" onClick={() => removePendingFile(i)} className="text-gray-400 hover:text-red-500 shrink-0">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <p className="text-xs text-gray-400">
+                Uploaded once you save the case below{pendingFiles.length > 1 ? ` — numbered "${docLabel.trim() || 'Document'} 1", "${docLabel.trim() || 'Document'} 2"…` : ''}.
+              </p>
+            </div>
+          )}
+
+          {docUploadNote && <p className="text-xs text-red-600">{docUploadNote}</p>}
+        </div>
+
+        {/* ── Section 5: Status ── */}
         <div className="p-6 space-y-5">
           <h3 className="text-base font-semibold text-gray-800" style={{ fontFamily: 'Georgia, serif' }}>Status & Filing</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -825,7 +947,7 @@ export default function NewCasePage() {
         {/* ── Actions ── */}
         <div className="p-6 flex items-center justify-between gap-4">
           <button type="button"
-            onClick={() => { setForm({ ...INITIAL }); setErrors({}); setSaveError(null); setSelectedClientId(''); setCity('') }}
+            onClick={() => { setForm({ ...INITIAL }); setErrors({}); setSaveError(null); setSelectedClientId(''); setCity(''); setPendingFiles([]); setDocLabel(''); setDocUploadNote(null) }}
             className="px-5 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
             Reset
           </button>
