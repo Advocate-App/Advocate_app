@@ -287,6 +287,9 @@ export default function EditCasePage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  // Who's actually handling this case — the team, not free-typed text.
+  const [teamAdvocates, setTeamAdvocates] = useState<{ id: string; full_name: string }[]>([])
+  const [handlerIsOther, setHandlerIsOther] = useState(false)
 
   // ---------------------------------------------------------------------------
   // Fetch case data on mount
@@ -316,6 +319,9 @@ export default function EditCasePage() {
         setLoading(false)
         return
       }
+
+      const { data: team } = await supabase.from('advocates').select('id, full_name').order('full_name')
+      setTeamAdvocates(team || [])
 
       // Fetch case with advocate_id security check
       const { data: caseData, error: caseError } = await supabase
@@ -368,6 +374,12 @@ export default function EditCasePage() {
         court_name_custom: courtNameCustom,
         hc_bench: hcBench,
       })
+      // Already-saved handler text that isn't one of the team's names
+      // (older data, or someone outside the team) stays editable as free
+      // text instead of silently disappearing into the dropdown.
+      if (caseData.our_role && !(team || []).some((a) => a.full_name === caseData.our_role)) {
+        setHandlerIsOther(true)
+      }
 
       setLoading(false)
     }
@@ -793,12 +805,24 @@ export default function EditCasePage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <TextInput
-              label="Our Role / Designation"
-              value={form.our_role}
-              onChange={(v) => set('our_role', v)}
-              placeholder="e.g. Counsel for Petitioner"
-            />
+            <div>
+              <SimpleSelect
+                label="Handler"
+                options={[...teamAdvocates.map(a => ({ value: a.full_name, label: a.full_name })), { value: '__OTHER__', label: 'Other (type a name)' }]}
+                value={handlerIsOther ? '__OTHER__' : form.our_role}
+                onChange={(v) => {
+                  if (v === '__OTHER__') { setHandlerIsOther(true); set('our_role', ''); return }
+                  setHandlerIsOther(false)
+                  set('our_role', v)
+                }}
+                placeholder="Who's handling this case…"
+              />
+              {handlerIsOther && (
+                <input type="text" value={form.our_role} onChange={(e) => set('our_role', e.target.value)}
+                  placeholder="Name…" autoFocus
+                  className="mt-1.5 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 placeholder-gray-400" />
+              )}
+            </div>
             <TextInput
               label="Opposite Advocate"
               value={form.opposite_advocate}

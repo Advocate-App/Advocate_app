@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useDropzone } from 'react-dropzone'
 import { createClient } from '@/lib/supabase/client'
 import { buildDocFileName } from '@/lib/docNaming'
 import {
@@ -14,7 +15,7 @@ import {
   CLIENT_SIDES_DISTRICT,
   CLIENT_SIDES_HC,
 } from '@/lib/constants/courts'
-import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check, FileUp, File as FileIcon, Loader2 } from 'lucide-react'
+import { ArrowLeft, Building2, Scale, ChevronDown, Search, Printer, Plus, X, User, Check, Upload, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -307,6 +308,9 @@ export default function NewCasePage() {
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [authToken, setAuthToken] = useState('')
   const [advocateId, setAdvocateId] = useState('')
+  // Who's actually handling this case — the team, not free-typed text.
+  const [teamAdvocates, setTeamAdvocates] = useState<{ id: string; full_name: string }[]>([])
+  const [handlerIsOther, setHandlerIsOther] = useState(false)
   const [showAddCourt, setShowAddCourt] = useState(false)
   const [showAddClient, setShowAddClient] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -321,6 +325,24 @@ export default function NewCasePage() {
     if (errors[key]) setErrors(prev => { const c = { ...prev }; delete c[key]; return c })
   }
 
+  // Document dropzone — must be called unconditionally (before the early
+  // "pick court level" return below), same rule as every other hook here.
+  const MAX_SELECT_BYTES = 150 * 1024 * 1024
+  const onDropDocs = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return
+    setPendingFiles((prev) => [...prev, ...acceptedFiles])
+  }, [])
+  const { getRootProps: getDocRootProps, getInputProps: getDocInputProps, isDragActive: isDocDragActive, fileRejections: docFileRejections } = useDropzone({
+    onDrop: onDropDocs,
+    disabled: saving,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+    },
+    maxSize: MAX_SELECT_BYTES,
+  })
+
   // Load auth token + custom courts + clients
   useEffect(() => {
     async function load() {
@@ -331,6 +353,8 @@ export default function NewCasePage() {
       setAuthToken(token)
       const { data: adv } = await supabase.from('advocates').select('id').eq('user_id', session.user.id).limit(1).maybeSingle()
       if (adv) setAdvocateId(adv.id)
+      const { data: team } = await supabase.from('advocates').select('id, full_name').order('full_name')
+      setTeamAdvocates(team || [])
       const headers = { Authorization: `Bearer ${token}` }
       // Gracefully ignore errors (tables may not exist yet)
       const [cr, cl] = await Promise.all([
@@ -449,11 +473,6 @@ export default function NewCasePage() {
   // compress + name + upload flow as the case detail page.
   // ---------------------------------------------------------------------------
   const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-
-  function addPendingFiles(files: FileList | null) {
-    if (!files || files.length === 0) return
-    setPendingFiles((prev) => [...prev, ...Array.from(files)])
-  }
 
   function removePendingFile(index: number) {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index))
@@ -688,7 +707,7 @@ export default function NewCasePage() {
           ['Case Number', ''],['Case Year', ''],['Filed Date', ''],
           ['Party 1 (Plaintiff / Petitioner)', ''],['Party 2 (Defendant / Respondent)', ''],
           ['Client Name', ''],['Client Side', 'Plaintiff / Defendant / Petitioner / Respondent'],
-          ['Our Role', ''],['Opposite Advocate', ''],
+          ['Handler', ''],['Opposite Advocate', ''],
           ['Case Stage', ''],['Next Hearing Date', ''],
           ['eCourts CNR Number', ''],['Notes', ''],
         ].map(([label, hint]) => (
@@ -894,8 +913,24 @@ export default function NewCasePage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <TextInput label="Our Role / Designation" value={form.our_role} onChange={(v) => set('our_role', v)}
-              placeholder="e.g. Counsel for Petitioner" />
+            <div>
+              <SimpleSelect
+                label="Handler"
+                options={[...teamAdvocates.map(a => ({ value: a.full_name, label: a.full_name })), { value: '__OTHER__', label: 'Other (type a name)' }]}
+                value={handlerIsOther ? '__OTHER__' : form.our_role}
+                onChange={(v) => {
+                  if (v === '__OTHER__') { setHandlerIsOther(true); set('our_role', ''); return }
+                  setHandlerIsOther(false)
+                  set('our_role', v)
+                }}
+                placeholder="Who's handling this case…"
+              />
+              {handlerIsOther && (
+                <input type="text" value={form.our_role} onChange={(e) => set('our_role', e.target.value)}
+                  placeholder="Name…" autoFocus
+                  className="mt-1.5 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 placeholder-gray-400" />
+              )}
+            </div>
             <TextInput label="Opposite Advocate" value={form.opposite_advocate}
               onChange={(v) => set('opposite_advocate', v)} placeholder="Name of opposing counsel" />
           </div>
@@ -908,45 +943,62 @@ export default function NewCasePage() {
             <p className="text-sm text-gray-500 mt-0.5">Optional — add a PDF or a photo now, or later from the case page.</p>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[200px]">
-              <TextInput label="Document Label" value={docLabel} onChange={setDocLabel} placeholder="e.g. Petition, Vakalatnama, Order…" />
+          <TextInput label="Document Label" value={docLabel} onChange={setDocLabel} placeholder="e.g. Petition, Vakalatnama, Order…" />
+
+          {/* Same drag-and-drop zone as the case page's own Documents tab —
+              nothing uploads until you save the case below. */}
+          <div
+            {...getDocRootProps()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+              saving ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+            } ${
+              isDocDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+            }`}
+          >
+            <input {...getDocInputProps()} />
+            <div>
+              <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-600">
+                {isDocDragActive ? 'Drop files here...' : 'Drag and drop PDF, JPG, or PNG files here, or click to browse'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">Uploaded once you save the case below — compressed automatically, no visible quality loss</p>
             </div>
-            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer transition-colors shrink-0">
-              <FileUp className="w-4 h-4" />
-              Add PDF or Photo
-              <input
-                type="file"
-                multiple
-                accept="application/pdf,image/*"
-                className="hidden"
-                onChange={(e) => { addPendingFiles(e.target.files); e.target.value = '' }}
-              />
-            </label>
           </div>
+          {docFileRejections.length > 0 && (
+            <p className="text-xs text-red-500 text-center">
+              {docFileRejections.map((r) => r.file.name).join(', ')} — {
+                docFileRejections[0].errors[0]?.code === 'file-too-large'
+                  ? `over the 150 MB selection limit (${formatBytes(docFileRejections[0].file.size)}).`
+                  : 'not a supported file type (PDF, JPG, or PNG only).'
+              }
+            </p>
+          )}
 
           {pendingFiles.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
               {pendingFiles.map((f, i) => {
                 const compressingThis = docCompressingName === f.name
                 return (
-                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-                    {compressingThis ? (
-                      <Loader2 className="w-4 h-4 text-[#1e3a5f] shrink-0 animate-spin" />
-                    ) : (
-                      <FileIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                  <div key={`${f.name}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      {compressingThis && <Loader2 className="w-4 h-4 text-[#1e3a5f] shrink-0 animate-spin" />}
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-700 truncate" title={f.name}>{f.name}</p>
+                        <p className="text-xs text-gray-400">{compressingThis ? 'Compressing…' : formatBytes(f.size)}</p>
+                      </div>
+                    </div>
+                    {!saving && (
+                      <button type="button" onClick={() => removePendingFile(i)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors shrink-0" title="Remove">
+                        <X className="w-4 h-4" />
+                      </button>
                     )}
-                    <span className="flex-1 min-w-0 truncate text-gray-700">{f.name}</span>
-                    {compressingThis && <span className="text-xs text-gray-400 shrink-0">Compressing…</span>}
-                    <button type="button" onClick={() => removePendingFile(i)} disabled={saving} className="text-gray-400 hover:text-red-500 shrink-0 disabled:opacity-30">
-                      <X className="w-4 h-4" />
-                    </button>
                   </div>
                 )
               })}
               {!docCompressionNote && (
-                <p className="text-xs text-gray-400">
-                  Uploaded once you save the case below{pendingFiles.length > 1 ? ` — numbered "${docLabel.trim() || 'Document'} 1", "${docLabel.trim() || 'Document'} 2"…` : ''}.
+                <p className="text-xs text-gray-400 px-3 py-2">
+                  {pendingFiles.length > 1 ? `Will be numbered "${docLabel.trim() || 'Document'} 1", "${docLabel.trim() || 'Document'} 2"…` : 'Ready to upload once you save the case.'}
                 </p>
               )}
             </div>

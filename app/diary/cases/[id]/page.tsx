@@ -1875,7 +1875,7 @@ export default function CaseDetailPage() {
                 <Field label="Second Client Name" value={caseData.client_name_2} />
               )}
               <Field label="Client Side" value={capitalize(caseData.client_side)} />
-              <Field label="Our Role" value={caseData.our_role} />
+              <Field label="Handler" value={caseData.our_role} />
               <Field label="Opposite Advocate" value={caseData.opposite_advocate} />
             </div>
           </section>
