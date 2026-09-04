@@ -765,6 +765,7 @@ export default function CaseDetailPage() {
   const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
     onDrop,
     disabled: uploading,
+    noKeyboard: true,
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],

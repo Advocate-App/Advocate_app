@@ -335,6 +335,7 @@ export default function NewCasePage() {
   const { getRootProps: getDocRootProps, getInputProps: getDocInputProps, isDragActive: isDocDragActive, fileRejections: docFileRejections } = useDropzone({
     onDrop: onDropDocs,
     disabled: saving,
+    noKeyboard: true,
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
